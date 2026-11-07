@@ -116,7 +116,7 @@ A managed definition can provide:
 - **Status/readiness:** determine whether the intended instance is running and usable.
 - **Endpoints and outputs:** provide consumers with connection values.
 
-For foreground processes, BranchBase can track the owned process and check readiness. For detached resources such as Docker Compose, it needs a status command or equivalent ownership evidence as well as readiness checks. A port accepting traffic is not sufficient proof that the intended stack is running. The implemented status-command contract returns the observed instance identity and running state; see the managed resources guide.
+For foreground processes, BranchBase can track the owned process and check readiness. For detached resources such as Docker Compose, it needs a status command or equivalent ownership evidence as well as readiness checks. A port accepting traffic is not sufficient proof that the intended stack is running. Status commands target the selected instance through arguments and environment. Their exit codes report running, stopped, or an observation error; they do not return a BranchBase-specific payload. See the managed resources guide.
 
 Every definition has an explicit execution directory. Definitions may live in a repository or user-level BranchBase configuration. A machine-wide registry records managed instance identity and its authoritative owner/definition. Consumers reference the instance; they do not copy its lifecycle commands into every project.
 
@@ -212,7 +212,7 @@ The requirements above are separate from these implementation choices, recorded 
 
 - Definitions use versioned JSON, explicit ports, named instance references, and configuration-derived public outputs.
 - A machine-wide registry references an authoritative definition file and owner directory. Repository declarations discover those files without starting commands.
-- Detached status commands return `instanceId` and `running`; the adapter must verify native ownership evidence.
+- Detached status commands use exit `0` for running and configurable nonzero codes for stopped (default `[1]`); other failures are unknown/error. Commands target the selected native instance explicitly. No returned instance ID or JSON payload is required.
 - Approval includes declared lifecycle source files. Changed files require approval; stopping a captured run requires restoring its captured revision. Build is explicit, without automatic staleness caching.
 - The owner definition sets the shared instance's idle policy.
 - Local secret inputs are file descriptors read at execution time; their values are not persisted in run bindings or command logs.

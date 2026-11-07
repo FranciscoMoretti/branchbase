@@ -266,13 +266,13 @@ test("configured port conflicts fail without allocating a replacement", async ()
   }
 }, 15_000);
 
-test("detached resources prove instance identity before serving consumers", async () => {
+test("detached status commands validate their target and report errors through exit codes", async () => {
   const f = await fixture();
   try {
     const script = path.join(f.owner, "detached.ts");
     writeFileSync(
       script,
-      `import {spawn} from 'node:child_process';import {readFileSync,writeFileSync,existsSync} from 'node:fs';const mode=process.argv[2];const file='detached-'+process.env.PORT+'.json';if(mode==='start'){const child=spawn(process.execPath,['database.ts'],{detached:true,stdio:'ignore',env:process.env});writeFileSync(file,JSON.stringify({pid:child.pid,id:process.env.ID}));child.unref();}else {const record=existsSync(file)?JSON.parse(readFileSync(file,'utf8')):null;if(mode==='stop'){if(record)process.kill(record.pid,'SIGTERM');}else{let running=false;try{if(record){process.kill(record.pid,0);running=true;}}catch{}console.log(JSON.stringify({instanceId:record?.id??process.env.ID,running}));}}`
+      `import {spawn} from 'node:child_process';import {readFileSync,writeFileSync,existsSync} from 'node:fs';const mode=process.argv[2];const file='detached-'+process.env.PORT+'.json';if(mode==='start'){const child=spawn(process.execPath,['database.ts'],{detached:true,stdio:'ignore',env:process.env});writeFileSync(file,JSON.stringify({pid:child.pid,id:process.env.ID}));child.unref();}else {const record=existsSync(file)?JSON.parse(readFileSync(file,'utf8')):null;if(mode==='stop'){if(record)process.kill(record.pid,'SIGTERM');}else{let running=false;try{if(record){process.kill(record.pid,0);running=true;}}catch{}if(record&&record.id!==process.env.ID)process.exit(2);process.exit(running?0:1);}}`
     );
     const definition = {
       ...f.definition,
@@ -296,7 +296,7 @@ test("detached resources prove instance identity before serving consumers", asyn
     const captured = JSON.parse(readFileSync(marker, "utf-8"));
     writeFileSync(marker, JSON.stringify({ ...captured, id: "other-owner" }));
     await expect(f.runtime.start(f.target("app1", "0"))).rejects.toThrow(
-      "identify the selected instance"
+      "unexpected code 2"
     );
     writeFileSync(marker, JSON.stringify(captured));
     await f.runtime.stop(target);
@@ -401,12 +401,12 @@ test("manual commands resolve stopped application bindings and protect resources
   }
 }, 15_000);
 
-test("detached resources without TCP endpoints use identity-bearing status for readiness", async () => {
+test("detached resources without TCP endpoints use status exit codes", async () => {
   const f = await fixture();
   try {
     writeFileSync(
       path.join(f.owner, "service.ts"),
-      `import {existsSync,writeFileSync,rmSync} from 'node:fs';const mode=process.argv[2];if(mode==='start')writeFileSync('active','yes');else if(mode==='stop')rmSync('active',{force:true});else console.log(JSON.stringify({instanceId:process.env.ID,running:existsSync('active')}));`
+      `import {existsSync,writeFileSync,rmSync} from 'node:fs';const mode=process.argv[2];if(mode==='start')writeFileSync('active','yes');else if(mode==='stop')rmSync('active',{force:true});else process.exit(existsSync('active')?0:3);`
     );
     writeFileSync(
       f.file,
@@ -420,7 +420,10 @@ test("detached resources without TCP endpoints use identity-bearing status for r
           start: { argv: [process.execPath, "service.ts", "start"] },
           stop: { argv: [process.execPath, "service.ts", "stop"] },
         },
-        status: { argv: [process.execPath, "service.ts", "status"] },
+        status: {
+          argv: [process.execPath, "service.ts", "status"],
+          stoppedExitCodes: [1, 3],
+        },
       })
     );
     const registration = f.runtime.managedResources.register(f.file);
@@ -476,7 +479,7 @@ test("catalog inspections share asynchronous status checks across named instance
       const marker='active-'+process.env.ID;const mode=process.argv[2];
       if(mode==='start')writeFileSync(marker,'yes');else if(mode==='stop')rmSync(marker,{force:true});else{
         appendFileSync('observations',process.env.ID+'\\n');
-        const timer=setInterval(()=>{if(existsSync('observe')){clearInterval(timer);console.log(JSON.stringify({instanceId:process.env.ID,running:existsSync(marker)}))}},20);
+        const timer=setInterval(()=>{if(existsSync('observe')){clearInterval(timer);process.exit(existsSync(marker)?0:1)}},20);
       }`
     );
     writeFileSync(
@@ -494,7 +497,10 @@ test("catalog inspections share asynchronous status checks across named instance
           start: { argv: [process.execPath, "service.ts", "start"] },
           stop: { argv: [process.execPath, "service.ts", "stop"] },
         },
-        status: { argv: [process.execPath, "service.ts", "status"] },
+        status: {
+          argv: [process.execPath, "service.ts", "status"],
+          stoppedExitCodes: [1, 3],
+        },
       })
     );
     writeFileSync(path.join(f.owner, "observe"), "yes");

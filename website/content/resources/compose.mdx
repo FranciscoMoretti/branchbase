@@ -7,7 +7,7 @@ sidebar:
 
 BranchBase runs your repository's commands. It does not import an arbitrary Compose file, guess how its services connect, or rewrite fixed container names.
 
-This example uses a project/worktree resource profile. For sharing a named Compose stack across projects, move lifecycle ownership into a [managed resource definition](/resources/managed) and provide an identity-bearing status adapter.
+This example uses a project/worktree resource profile. For sharing a named Compose stack across projects, move lifecycle ownership into a [managed resource definition](/resources/managed) and provide a status command scoped to the selected stack.
 
 ## Publish the assigned port
 

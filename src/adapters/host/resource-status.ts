@@ -75,73 +75,72 @@ export const runBoundCommand = async (
   }
 };
 
-const parseResourceStatus = (stdout: string, instanceId: string): boolean => {
-  let output: unknown;
-  try {
-    output = JSON.parse(stdout);
-  } catch {
-    throw new Error(
-      "Resource status must return JSON with instanceId and running"
-    );
+const resourceRunningForExitCode = (
+  code: number,
+  stoppedExitCodes: readonly number[]
+): boolean => {
+  if (code === 0) {
+    return true;
   }
-  if (
-    !output ||
-    typeof output !== "object" ||
-    !("instanceId" in output) ||
-    output.instanceId !== instanceId ||
-    !("running" in output) ||
-    typeof output.running !== "boolean"
-  ) {
-    throw new Error("Resource status did not identify the selected instance");
+  if (stoppedExitCodes.includes(code)) {
+    return false;
   }
-  return output.running;
+  throw new Error(
+    `Resource status command exited with unexpected code ${code}`
+  );
 };
 
 const executeFile = promisify(execFile);
 
 /** Dashboard observations must never block the daemon's event loop. */
 export const observeManagedResourceRunning = async (
-  argv: string[],
+  argv: readonly string[],
   cwd: string,
   env: Record<string, string>,
-  instanceId: string
+  stoppedExitCodes: readonly number[] = [1]
 ): Promise<boolean> => {
-  let stdout: string;
   try {
-    ({ stdout } = await executeFile(argv[0], argv.slice(1), {
+    await executeFile(argv[0], argv.slice(1), {
       cwd,
       encoding: "utf-8",
       env: { ...process.env, ...env },
       killSignal: "SIGKILL",
       maxBuffer: 64 * 1024,
       timeout: 5000,
-    }));
-  } catch {
-    throw new Error(
-      "Resource status command failed; ownership could not be verified"
-    );
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      typeof error.code === "number" &&
+      !("signal" in error && error.signal) &&
+      !("killed" in error && error.killed)
+    ) {
+      return resourceRunningForExitCode(error.code, stoppedExitCodes);
+    }
+    // oxlint-disable-next-line preserve-caught-error -- Child errors contain stdout/stderr that may include secret inputs.
+    throw new Error("Resource status command failed; running state is unknown");
   }
-  return parseResourceStatus(stdout, instanceId);
+  return true;
 };
 
-/** A detached owner's command must identify the exact instance it observed. */
+/** The configured command targets the selected resource; stdout is not a protocol. */
 export const managedResourceRunning = (
-  argv: string[],
+  argv: readonly string[],
   cwd: string,
   env: Record<string, string>,
-  instanceId: string
+  stoppedExitCodes: readonly number[] = [1]
 ): boolean => {
   const result = spawnSync(argv[0], argv.slice(1), {
     cwd,
     encoding: "utf-8",
     env: { ...process.env, ...env },
+    killSignal: "SIGKILL",
     maxBuffer: 64 * 1024,
     timeout: 5000,
   });
-  if (result.status !== 0) {
-    throw new Error(
-      "Resource status command failed; ownership could not be verified"
-    );
+  if (result.error || result.signal || result.status === null) {
+    throw new Error("Resource status command failed; running state is unknown");
   }
-  return parseResourceStatus(result.stdout, instanceId);
+  return resourceRunningForExitCode(result.status, stoppedExitCodes);
 };
