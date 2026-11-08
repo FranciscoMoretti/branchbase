@@ -65,7 +65,7 @@ bun add --global branchbase
 branchbase start --repo /path/to/your/repository
 ```
 
-The next release also installs `bbase` as a shorter CLI alias. Both commands use the same daemon, configuration, and state:
+BranchBase 0.5.0 also installs `bbase` as a shorter CLI alias. Both commands use the same daemon, configuration, and state:
 
 ```sh
 bbase start --repo /path/to/your/repository
