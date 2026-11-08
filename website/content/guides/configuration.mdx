@@ -20,7 +20,7 @@ Commands use argument arrays rather than a shell string:
 
 `cwd` is optional and must remain inside the owning checkout. Shell syntax such as pipes or `&&` is not interpreted automatically. Put multi-step behavior in a repository script and review it before approval.
 
-With `"stop": "process"`, Start must stay in the foreground. Use a configured Stop command for detached services. Managed detached resources also need an [ownership-aware status command](/resources/managed#detached-resources).
+With `"stop": "process"`, Start must stay in the foreground. Use a configured Stop command for detached services. Managed detached resources also need an [instance-scoped status command](/resources/managed#detached-resources).
 
 ## Endpoints and readiness
 

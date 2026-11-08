@@ -294,6 +294,15 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "stoppedExitCodes": {
+          "default": [1],
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 255
+          }
         }
       },
       "required": ["argv"],

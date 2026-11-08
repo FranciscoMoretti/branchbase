@@ -136,15 +136,28 @@ Include every local command script, Compose file, and transitive build input in 
 
 ## Detached resources
 
-A detached resource uses a configured Stop command and must provide `status.argv`. The status command returns exactly one JSON object:
+A detached resource must declare `status.argv`. BranchBase uses its exit code, not stdout or a returned instance ID:
+
+- `0`: running.
+- `1`: stopped by default. Set `status.stoppedExitCodes` to other nonzero codes when needed; an empty array treats every nonzero exit as an error.
+- Any other exit code, signal, launch failure, timeout, or output-limit failure: unknown/error, not stopped. Lifecycle operations fail rather than accepting an unknown result; dashboard health remains partial until status can be checked successfully.
+
+For example, a service CLI that uses exit `3` for stopped can be configured as follows (replace `service-cli` with your actual command):
 
 ```json
-{ "instanceId": "THE_INSTANCE_UUID", "running": true }
+{
+  "status": {
+    "argv": ["service-cli", "status", "--instance", "{instance.name}"],
+    "stoppedExitCodes": [3]
+  }
+}
 ```
 
-Pass `{instance.id}` into the lifecycle adapter. Status must check native ownership evidence, such as container labels, before reporting the identity. An open port alone is not proof of ownership. Exit nonzero when ownership cannot be verified.
+Status uses the owner's execution directory and selected instance environment. Scope Start, Stop, and Status to the same native identity, such as a Compose project name, container name, or service name. Commands remain responsible for validating their target; a successful exit is not independent proof of ownership. In particular, `docker compose ps` succeeding does not by itself mean a stack is running. BranchBase retains its internal instance ID for state, consumers, and optional command bindings, but no command must return it.
 
-The status command has a five-second timeout and bounded output. Every required endpoint must be ready before a consuming application starts.
+Status runs with a five-second timeout and bounded output. Endpoint readiness remains separate: status must indicate running and every required endpoint must be ready before consumers start or HTTP routes are exposed.
+
+When upgrading from the previous JSON status contract, stop detached resources with the previous BranchBase version and unchanged recipe first. Update status commands to return exit codes, then approve their new definitions before starting again. The normalized exit-code policy changes the approved revision, preventing captured JSON-era runs from being silently reinterpreted.
 
 ## Build, stop, and sharing
 

@@ -1,5 +1,6 @@
 interface Observation {
   at: number;
+  error?: Error;
   pending: boolean;
   running: boolean;
 }
@@ -34,6 +35,9 @@ export class ManagedResourceObservation {
       result.pending = true;
       ManagedResourceObservation.refresh(result, observe);
     }
+    if (result.error) {
+      throw result.error;
+    }
     return result.running;
   }
   private static async refresh(
@@ -42,8 +46,12 @@ export class ManagedResourceObservation {
   ): Promise<void> {
     try {
       result.running = await observe();
-    } catch {
-      result.running = false;
+      result.error = undefined;
+    } catch (error) {
+      result.error =
+        error instanceof Error
+          ? error
+          : new Error("Resource status is unknown");
     } finally {
       result.at = Date.now();
       result.pending = false;

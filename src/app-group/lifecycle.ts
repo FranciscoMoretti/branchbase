@@ -1959,7 +1959,7 @@ export class AppGroupRuntime {
       argv,
       cwd: context.processPath,
       env: commandEnvironment(context.group, command.env),
-      instanceId: context.run.instanceId,
+      stoppedExitCodes: status.stoppedExitCodes,
     };
   }
 
@@ -1985,7 +1985,7 @@ export class AppGroupRuntime {
               command.argv,
               command.cwd,
               command.env,
-              command.instanceId
+              command.stoppedExitCodes
             )
           : true;
       }
@@ -1999,7 +1999,7 @@ export class AppGroupRuntime {
           command.argv,
           command.cwd,
           command.env,
-          command.instanceId
+          command.stoppedExitCodes
         )
       : true;
     this.managedObservation.record(

@@ -24,7 +24,12 @@ export const ManagedResourceDefinitionSchema = z
     name: z.string().min(1),
     recipe: BranchBaseAppGroupSchema,
     status: z
-      .strictObject({ argv: z.array(z.string().min(1)).min(1) })
+      .strictObject({
+        argv: z.array(z.string().min(1)).min(1),
+        stoppedExitCodes: z
+          .array(z.number().int().min(1).max(255))
+          .default([1]),
+      })
       .optional(),
     version: z.literal(1),
   })
@@ -32,8 +37,7 @@ export const ManagedResourceDefinitionSchema = z
     if (value.recipe.stop !== "process" && !value.status) {
       context.addIssue({
         code: "custom",
-        message:
-          "Detached resources require an identity-bearing status command",
+        message: "Detached resources require a status command",
         path: ["status"],
       });
     }
