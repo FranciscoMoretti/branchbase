@@ -15,6 +15,15 @@ Docker and Codex are optional integrations. BranchBase itself does not need an O
 
 ## Install the package
 
+<Callout type="warning" title="Upgrading from a development source build">
+  If your detached resources use the previous JSON status contract, stop them
+  with the old BranchBase version and unchanged recipes before upgrading. Then
+  update status commands to use exit codes and approve the new definitions.
+  Follow the [status migration guidance](/resources/managed#detached-resources),
+  including for resources without endpoints. This does not apply to upgrades
+  from the published `0.4.0` package, which did not include managed resources.
+</Callout>
+
 ```sh
 bun add --global branchbase
 branchbase start --repo /absolute/path/to/project
