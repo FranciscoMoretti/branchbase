@@ -88,5 +88,8 @@ test.each(["matching", "mismatched", "legacy"])(
       await server.stop(true);
       rmSync(homeDirectory, { force: true, recursive: true });
     }
-  }
+  },
+  // Each real CLI process fingerprints the installed dependency tree before and
+  // after loading modules. Allow cold filesystem reads on the macOS CI runner.
+  15_000
 );
