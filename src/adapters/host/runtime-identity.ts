@@ -94,6 +94,13 @@ const dependencyFiles = (
 };
 
 const contentDigests = new Map<string, { digest: string; identity: string }>();
+let digestExpiry: ReturnType<typeof setTimeout> | undefined;
+
+const clearContentDigests = (): void => {
+  contentDigests.clear();
+  clearTimeout(digestExpiry);
+  digestExpiry = undefined;
+};
 
 const hashFile = (
   hash: Hash,
@@ -149,6 +156,10 @@ const runtimeFiles = (root: string, directory: string): string[] => {
 export const readRuntimeIdentity = (
   appRoot = pathModule.resolve(import.meta.dirname, "../../..")
 ): RuntimeIdentity => {
+  // Startup verification clears this immediately; standalone readers must not
+  // retain the installation's digest metadata for the process lifetime either.
+  digestExpiry ??= setTimeout(clearContentDigests, 30_000);
+  digestExpiry.unref();
   const installationPath = realpathSync(appRoot);
   const manifest = readFileSync(
     pathModule.join(installationPath, "package.json")
@@ -193,12 +204,17 @@ export const readRuntimeIdentity = (
 };
 
 export const assertRuntimeUnchanged = (expected: RuntimeIdentity): void => {
-  if (
-    readRuntimeIdentity(expected.installationPath).buildId !== expected.buildId
-  ) {
-    throw new Error(
-      "BranchBase installation changed during startup. Retry after the upgrade completes."
-    );
+  try {
+    if (
+      readRuntimeIdentity(expected.installationPath).buildId !==
+      expected.buildId
+    ) {
+      throw new Error(
+        "BranchBase installation changed during startup. Retry after the upgrade completes."
+      );
+    }
+  } finally {
+    clearContentDigests();
   }
 };
 
