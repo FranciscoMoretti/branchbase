@@ -5,7 +5,7 @@ import pathModule from "node:path";
 
 import { AppGroupLifecycleError } from "../../app-group/lifecycle-error";
 import { ProductCatalogError } from "../../project/catalog";
-import { readRuntimeIdentity, RUNTIME_HEADER } from "../host/runtime-identity";
+import { RUNTIME_HEADER } from "../host/runtime-identity";
 import { createBranchBaseServer } from "./branchbase-server";
 import type { BranchBaseServerController } from "./branchbase-server";
 
@@ -110,6 +110,11 @@ describe("BranchBase HTTP server", () => {
     const appRoot = mkdtempSync(
       pathModule.join(tmpdir(), "branchbase-server-test-")
     );
+    const runtime = {
+      buildId: "server-test-build",
+      installationPath: appRoot,
+      version: "test",
+    };
     let closeCalls = 0;
     let commandCalls = 0;
     const controller = {
@@ -140,6 +145,7 @@ describe("BranchBase HTTP server", () => {
       development: false,
       enableCodexHooks: false,
       port: 0,
+      runtime,
     });
 
     try {
@@ -147,7 +153,7 @@ describe("BranchBase HTTP server", () => {
       const health = await fetch(new URL("/api/health", url));
       expect(await health.json()).toMatchObject({
         ok: true,
-        runtime: readRuntimeIdentity(),
+        runtime,
         service: "branchbase",
       });
 
@@ -180,7 +186,7 @@ describe("BranchBase HTTP server", () => {
         body: "{}",
         headers: {
           "content-type": "application/json",
-          [RUNTIME_HEADER]: readRuntimeIdentity().buildId,
+          [RUNTIME_HEADER]: runtime.buildId,
           "x-branchbase-token": session.token,
         },
         method: "POST",
