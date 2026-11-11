@@ -16,6 +16,8 @@ branchbase dashboard --repo /absolute/path/to/project
 
 The shorter `start`, `status`, and `stop` forms are also accepted. `bbase` is a CLI alias; both names address the same daemon.
 
+After an upgrade or installation switch, startup, status, dashboard opening, and CLI requests check the daemon's build identity. Different builds of the same version are detected too. If the CLI reports a mismatch, run `branchbase daemon stop`, wait for the daemon to exit, then run `branchbase daemon start` from the intended installation. Older daemons without build identity support also require this restart. The check does not stop running apps automatically, and `stop` remains available across build mismatches.
+
 ## Project queries
 
 ```sh

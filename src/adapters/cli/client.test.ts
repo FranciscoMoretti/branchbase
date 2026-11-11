@@ -234,7 +234,9 @@ test("CLI help works without contacting the daemon", async () => {
     },
     runtime
   );
-  expect(await runCli(["help"], client, "/repo")).toContain("bbase daemon");
+  expect(await runCli(["help"], client, "/repo")).toContain(
+    "branchbase daemon"
+  );
 });
 
 test("CLI reports a daemon that is unavailable without rewriting the transport error", async () => {
@@ -250,6 +252,9 @@ test("exec passes resolved bindings to a real command and releases its reservati
   const calls: string[] = [];
   const client = new DaemonClient("http://localhost:3999", (url, init) => {
     calls.push(url.pathname);
+    if (url.pathname === "/api/health") {
+      return Promise.resolve(health());
+    }
     if (url.pathname === "/api/session") {
       return Promise.resolve(Response.json({ token: "test-session" }));
     }
@@ -297,8 +302,10 @@ test("exec passes resolved bindings to a real command and releases its reservati
     )
   ).rejects.toThrow("Command exited with 7");
   expect(calls).toEqual([
+    "/api/health",
     "/api/session",
     "/api/commands/resource-command-context",
+    "/api/health",
     "/api/session",
     "/api/commands/release-command-context",
   ]);
