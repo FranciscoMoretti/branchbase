@@ -64,7 +64,7 @@ test("runtime identity detects same-version upgrades and installation switches, 
   }
 });
 
-test("runtime identity captures lockfiles and resolved transitive dependency versions", () => {
+test("runtime identity captures lockfiles and resolved transitive dependency versions and contents", () => {
   const root = mkdtempSync(
     pathModule.join(tmpdir(), "branchbase-dependency-identity-")
   );
@@ -94,9 +94,20 @@ test("runtime identity captures lockfiles and resolved transitive dependency ver
     );
     const changedDependency = readRuntimeIdentity(root);
     expect(changedDependency.buildId).not.toBe(original.buildId);
+    writeFileSync(
+      pathModule.join(transitive, "index.js"),
+      "export const build = 'A';"
+    );
+    const dependencyBuildA = readRuntimeIdentity(root);
+    writeFileSync(
+      pathModule.join(transitive, "index.js"),
+      "export const build = 'B';"
+    );
+    const dependencyBuildB = readRuntimeIdentity(root);
+    expect(dependencyBuildB.buildId).not.toBe(dependencyBuildA.buildId);
     writeFileSync(pathModule.join(root, "bun.lock"), "changed resolution");
     expect(readRuntimeIdentity(root).buildId).not.toBe(
-      changedDependency.buildId
+      dependencyBuildB.buildId
     );
   } finally {
     rmSync(root, { force: true, recursive: true });

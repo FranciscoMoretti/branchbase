@@ -1,5 +1,15 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import type { Hash } from "node:crypto";
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  readSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import pathModule from "node:path";
 
@@ -24,11 +34,12 @@ const TEST_FILE = /(?:\.test\.|\.spec\.|^test-|[-.]fixture[s]?\.)/u;
 const PackageManifestSchema = z.object({
   dependencies: z.record(z.string(), z.string()).optional(),
   optionalDependencies: z.record(z.string(), z.string()).optional(),
+  peerDependencies: z.record(z.string(), z.string()).optional(),
   version: z.string().min(1),
 });
 
 /** Resolved manifests capture installed versions, including hoisted/transitive dependencies. */
-const installedDependencyFiles = (root: string): string[] => {
+const installedDependencyManifests = (root: string): string[] => {
   const pending = [pathModule.join(root, "package.json")];
   const seen = new Set<string>();
   while (pending.length > 0) {
@@ -44,6 +55,7 @@ const installedDependencyFiles = (root: string): string[] => {
     for (const name of Object.keys({
       ...manifest.dependencies,
       ...manifest.optionalDependencies,
+      ...manifest.peerDependencies,
     })) {
       const directory = require.resolve
         .paths(name)
@@ -57,7 +69,47 @@ const installedDependencyFiles = (root: string): string[] => {
       }
     }
   }
+  seen.delete(pathModule.join(root, "package.json"));
   return [...seen].toSorted();
+};
+
+const dependencyFiles = (
+  directory: string,
+  visited = new Set<string>()
+): string[] => {
+  const canonical = realpathSync(directory);
+  if (visited.has(canonical)) {
+    return [];
+  }
+  visited.add(canonical);
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.name === "node_modules" || entry.name === ".git") {
+      return [];
+    }
+    const file = pathModule.join(directory, entry.name);
+    return statSync(file).isDirectory()
+      ? dependencyFiles(file, visited)
+      : [file];
+  });
+};
+
+const hashFile = (
+  hash: Hash,
+  file: string,
+  label: string,
+  buffer: Buffer
+): void => {
+  hash.update(JSON.stringify([label, statSync(file).size]));
+  const descriptor = openSync(file, "r");
+  try {
+    let count = readSync(descriptor, buffer);
+    while (count > 0) {
+      hash.update(buffer.subarray(0, count));
+      count = readSync(descriptor, buffer);
+    }
+  } finally {
+    closeSync(descriptor);
+  }
 };
 
 const runtimeFiles = (root: string, directory: string): string[] => {
@@ -107,15 +159,16 @@ export const readRuntimeIdentity = (
       runtimeFiles(installationPath, directory)
     ),
   ].toSorted();
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
   for (const file of files) {
-    const contents = readFileSync(pathModule.join(installationPath, file));
-    hash.update(JSON.stringify([file, contents.length]));
-    hash.update(contents);
+    hashFile(hash, pathModule.join(installationPath, file), file, buffer);
   }
-  for (const file of installedDependencyFiles(installationPath)) {
-    const contents = readFileSync(file);
-    hash.update(JSON.stringify([file, contents.length]));
-    hash.update(contents);
+  for (const dependency of installedDependencyManifests(installationPath)) {
+    for (const file of dependencyFiles(
+      pathModule.dirname(dependency)
+    ).toSorted()) {
+      hashFile(hash, file, file, buffer);
+    }
   }
   return { buildId: hash.digest("hex"), installationPath, version };
 };
