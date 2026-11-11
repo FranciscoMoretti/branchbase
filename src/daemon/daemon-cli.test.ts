@@ -89,7 +89,8 @@ test.each(["matching", "mismatched", "legacy"])(
       rmSync(homeDirectory, { force: true, recursive: true });
     }
   },
-  // Each real CLI process fingerprints the installed dependency tree before and
-  // after loading modules. Allow cold filesystem reads on the macOS CI runner.
-  15_000
+  // This includes the fixture's cold fingerprint plus two real CLI processes,
+  // each checking the installed dependency tree before and after loading modules.
+  // Keep an integration-test budget for cold filesystem reads on macOS CI.
+  60_000
 );
