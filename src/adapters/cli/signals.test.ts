@@ -27,14 +27,14 @@ test.each(["SIGINT", "SIGTERM", "SIGHUP"] as const)(
     const runner = `import {writeFileSync,existsSync} from 'node:fs';
     import {DaemonClient} from ${JSON.stringify(new URL("client.ts", import.meta.url).href)};
     import {runCli} from ${JSON.stringify(new URL("run.ts", import.meta.url).href)};
-    import {readRuntimeIdentity} from ${JSON.stringify(new URL("../host/runtime-identity.ts", import.meta.url).href)};
+    const runtime={buildId:'signal-test',installationPath:'/test',version:'test'};
     const client=new DaemonClient('http://localhost:3999',(url)=>{
-      if(url.pathname==='/api/health')return Promise.resolve(Response.json({ok:true,pid:process.pid,service:'branchbase',runtime:readRuntimeIdentity()}));
+      if(url.pathname==='/api/health')return Promise.resolve(Response.json({ok:true,pid:process.pid,service:'branchbase',runtime}));
       if(url.pathname.endsWith('/session'))return Promise.resolve(Response.json({token:'test'}));
       if(url.pathname.endsWith('/resource-command-context'))return Promise.resolve(Response.json({cwd:${JSON.stringify(root)},env:{},inputs:{},leaseId:'lease'}));
       writeFileSync('released',existsSync('stopped')?'after-child':'before-child');
       return Promise.resolve(Response.json({ok:true,command:'release-command-context',message:'Released'}));
-    });
+    },runtime);
     await runCli(['exec','--worktree','main','--group','app','--',process.execPath,${JSON.stringify(childFile)}],client,${JSON.stringify(root)});`;
     const cli = spawn(process.execPath, ["--eval", runner], {
       cwd: root,
