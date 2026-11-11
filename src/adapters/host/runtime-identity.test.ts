@@ -4,7 +4,9 @@ import {
   mkdirSync,
   mkdtempSync,
   rmSync,
+  statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -99,9 +101,16 @@ test("runtime identity captures lockfiles and resolved transitive dependency ver
       "export const build = 'A';"
     );
     const dependencyBuildA = readRuntimeIdentity(root);
+    const previousStat = statSync(pathModule.join(transitive, "index.js"));
     writeFileSync(
       pathModule.join(transitive, "index.js"),
       "export const build = 'B';"
+    );
+    // Same-size edits remain visible even when a copier preserves modification time.
+    utimesSync(
+      pathModule.join(transitive, "index.js"),
+      previousStat.atime,
+      previousStat.mtime
     );
     const dependencyBuildB = readRuntimeIdentity(root);
     expect(dependencyBuildB.buildId).not.toBe(dependencyBuildA.buildId);

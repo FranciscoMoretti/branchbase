@@ -93,23 +93,42 @@ const dependencyFiles = (
   });
 };
 
+const contentDigests = new Map<string, { digest: string; identity: string }>();
+
 const hashFile = (
   hash: Hash,
   file: string,
   label: string,
   buffer: Buffer
 ): void => {
-  hash.update(JSON.stringify([label, statSync(file).size]));
+  const stat = statSync(file, { bigint: true });
+  const identity = [
+    stat.dev,
+    stat.ino,
+    stat.size,
+    stat.mtimeNs,
+    stat.ctimeNs,
+  ].join(":");
+  hash.update(JSON.stringify([label, stat.size.toString()]));
+  const cached = contentDigests.get(file);
+  if (cached?.identity === identity) {
+    hash.update(cached.digest);
+    return;
+  }
+  const contentHash = createHash("sha256");
   const descriptor = openSync(file, "r");
   try {
     let count = readSync(descriptor, buffer);
     while (count > 0) {
-      hash.update(buffer.subarray(0, count));
+      contentHash.update(buffer.subarray(0, count));
       count = readSync(descriptor, buffer);
     }
   } finally {
     closeSync(descriptor);
   }
+  const digest = contentHash.digest("hex");
+  contentDigests.set(file, { digest, identity });
+  hash.update(digest);
 };
 
 const runtimeFiles = (root: string, directory: string): string[] => {
