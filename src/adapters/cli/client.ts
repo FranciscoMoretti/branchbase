@@ -6,10 +6,11 @@ import {
 import {
   readRuntimeIdentity,
   RUNTIME_HEADER,
+  RUNTIME_PATH_PREFIX,
   RuntimeIdentitySchema,
   runtimeMismatchMessage,
-} from "../../daemon/runtime-identity";
-import type { RuntimeIdentity } from "../../daemon/runtime-identity";
+} from "../host/runtime-identity";
+import type { RuntimeIdentity } from "../host/runtime-identity";
 
 export class DaemonClient {
   private readonly origin: string;
@@ -74,7 +75,7 @@ export class DaemonClient {
     parameters: Record<string, string> = {}
   ): Promise<unknown> {
     await this.verifyRuntime();
-    const url = new URL(path, this.origin);
+    const url = this.applicationUrl(path);
     url.search = new URLSearchParams(parameters).toString();
     return DaemonClient.read(
       await this.transport(url, {
@@ -100,7 +101,7 @@ export class DaemonClient {
     }
     // A command may outlive a transport connection. Never automatically replay it.
     const response = await this.transport(
-      new URL(`/api/commands/${command}`, this.origin),
+      this.applicationUrl(`/api/commands/${command}`),
       {
         body: JSON.stringify(parsed),
         headers: {
@@ -112,6 +113,17 @@ export class DaemonClient {
       }
     );
     return parseCommandResult(command, await DaemonClient.read(response));
+  }
+
+  private applicationUrl(path: string): URL {
+    if (!path.startsWith("/api/")) {
+      throw new Error("Daemon application requests require an /api/ path");
+    }
+    // Legacy daemons return 404 for this namespace instead of ignoring a new header.
+    return new URL(
+      `${RUNTIME_PATH_PREFIX}${this.runtime.buildId}${path.slice(4)}`,
+      this.origin
+    );
   }
 
   private static async read(response: Response): Promise<unknown> {

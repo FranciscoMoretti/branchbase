@@ -1,27 +1,26 @@
 import { expect, test } from "bun:test";
 
-import {
-  readRuntimeIdentity,
-  RUNTIME_HEADER,
-} from "../../daemon/runtime-identity";
+import { readRuntimeIdentity, RUNTIME_HEADER } from "../host/runtime-identity";
 import { DaemonClient } from "./client";
 import { runCli } from "./run";
 
 const runtime = readRuntimeIdentity();
+const applicationPath = (url: URL): string =>
+  url.pathname.replace(`/api/runtime/${runtime.buildId}`, "/api");
 const health = () =>
   Response.json({ ok: true, pid: 123, runtime, service: "branchbase" });
 
 test("CLI validates commands before transport and sends the daemon session", async () => {
   const calls: string[] = [];
   const client = new DaemonClient("http://localhost:3999", (url, init) => {
-    calls.push(url.pathname);
-    if (url.pathname === "/api/health") {
+    calls.push(applicationPath(url));
+    if (applicationPath(url) === "/api/health") {
       return Promise.resolve(health());
     }
     expect(new Headers(init?.headers).get(RUNTIME_HEADER)).toBe(
       runtime.buildId
     );
-    if (url.pathname === "/api/session") {
+    if (applicationPath(url) === "/api/session") {
       return Promise.resolve(Response.json({ token: "test-session" }));
     }
     expect(new Headers(init?.headers).get("x-branchbase-token")).toBe(
@@ -63,10 +62,10 @@ test("CLI validates commands before transport and sends the daemon session", asy
 
 test("CLI project status uses the same headless status query and defaults to cwd", async () => {
   const client = new DaemonClient("http://localhost:3999", (url) => {
-    if (url.pathname === "/api/health") {
+    if (applicationPath(url) === "/api/health") {
       return Promise.resolve(health());
     }
-    expect(url.pathname).toBe("/api/project-status");
+    expect(applicationPath(url)).toBe("/api/project-status");
     expect(url.searchParams.get("repoPath")).toBe("/code/project");
     return Promise.resolve(
       Response.json({ configuration: { state: "unconfigured" } })
@@ -85,10 +84,10 @@ test("CLI project status uses the same headless status query and defaults to cwd
 test("CLI never replays a command after an ambiguous connection failure", async () => {
   let posts = 0;
   const client = new DaemonClient("http://localhost:3999", (url) => {
-    if (url.pathname === "/api/health") {
+    if (applicationPath(url) === "/api/health") {
       return Promise.resolve(health());
     }
-    if (url.pathname === "/api/session") {
+    if (applicationPath(url) === "/api/session") {
       return Promise.resolve(Response.json({ token: "test-session" }));
     }
     posts += 1;
@@ -109,11 +108,11 @@ test.each([
   async (repo, expected) => {
     const paths: string[] = [];
     const client = new DaemonClient("http://localhost:3999", (url) => {
-      if (url.pathname === "/api/health") {
+      if (applicationPath(url) === "/api/health") {
         return Promise.resolve(health());
       }
       expect(url.searchParams.get("repoPath")).toBe(expected);
-      paths.push(url.pathname);
+      paths.push(applicationPath(url));
       return Promise.resolve(Response.json({ lines: [] }));
     });
     await runCli(
@@ -134,7 +133,9 @@ test("CLI preserves multiline plain-text logs and structured JSON logs", async (
   const lines = ["first", "second"];
   const client = new DaemonClient("http://localhost:3999", (url) =>
     Promise.resolve(
-      url.pathname === "/api/health" ? health() : Response.json({ lines })
+      applicationPath(url) === "/api/health"
+        ? health()
+        : Response.json({ lines })
     )
   );
   const args = ["logs", "--worktree", "main", "--group", "app"];
@@ -157,7 +158,7 @@ test.each([
     const client = new DaemonClient(
       "http://localhost:3999",
       (url) => {
-        calls.push(url.pathname);
+        calls.push(applicationPath(url));
         return Promise.resolve(
           Response.json({
             ok: true,
@@ -207,7 +208,7 @@ test("CLI rechecks identity when a daemon changes between requests", async () =>
   const client = new DaemonClient(
     "http://localhost:3999",
     (url) => {
-      if (url.pathname === "/api/health") {
+      if (applicationPath(url) === "/api/health") {
         healthChecks += 1;
         return Promise.resolve(
           healthChecks === 1
@@ -239,6 +240,39 @@ test("CLI help works without contacting the daemon", async () => {
   );
 });
 
+test.each(["query", "command"])(
+  "CLI %s cannot reach a legacy daemon that replaces the checked build",
+  async (operation) => {
+    const requests: string[] = [];
+    const client = new DaemonClient(
+      "http://localhost:3999",
+      (url) => {
+        requests.push(url.pathname);
+        if (url.pathname === "/api/health") {
+          return Promise.resolve(health());
+        }
+        // Legacy servers only recognize the original /api routes. Their fallback is 404.
+        if (url.pathname.startsWith("/api/runtime/")) {
+          return Promise.resolve(
+            Response.json({ error: "Not found" }, { status: 404 })
+          );
+        }
+        throw new Error("An application request reached the legacy API");
+      },
+      runtime
+    );
+    const result =
+      operation === "query"
+        ? client.query("/api/projects")
+        : client.execute("scan-development-folders", {});
+    await expect(result).rejects.toThrow("Not found");
+    expect(requests).toEqual([
+      "/api/health",
+      `/api/runtime/${runtime.buildId}/${operation === "query" ? "projects" : "session"}`,
+    ]);
+  }
+);
+
 test("CLI reports a daemon that is unavailable without rewriting the transport error", async () => {
   const client = new DaemonClient("http://127.0.0.1:3999", () =>
     Promise.reject(new Error("Failed to connect to daemon"))
@@ -251,14 +285,14 @@ test("CLI reports a daemon that is unavailable without rewriting the transport e
 test("exec passes resolved bindings to a real command and releases its reservation on failure", async () => {
   const calls: string[] = [];
   const client = new DaemonClient("http://localhost:3999", (url, init) => {
-    calls.push(url.pathname);
-    if (url.pathname === "/api/health") {
+    calls.push(applicationPath(url));
+    if (applicationPath(url) === "/api/health") {
       return Promise.resolve(health());
     }
-    if (url.pathname === "/api/session") {
+    if (applicationPath(url) === "/api/session") {
       return Promise.resolve(Response.json({ token: "test-session" }));
     }
-    if (url.pathname === "/api/commands/resource-command-context") {
+    if (applicationPath(url) === "/api/commands/resource-command-context") {
       expect(JSON.parse(String(init?.body))).toEqual({
         appGroupName: "app",
         repoPath: "/code/project",

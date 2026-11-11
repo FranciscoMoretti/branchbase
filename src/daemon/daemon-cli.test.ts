@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import pathModule from "node:path";
 
 import { processStartMarker } from "../adapters/host/process-inspection";
-import { readRuntimeIdentity } from "./runtime-identity";
+import { readRuntimeIdentity } from "../adapters/host/runtime-identity";
 
 test.each(["matching", "mismatched", "legacy"])(
   "daemon start and status verify a %s live daemon without replacing it",

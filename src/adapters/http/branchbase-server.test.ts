@@ -4,11 +4,8 @@ import { tmpdir } from "node:os";
 import pathModule from "node:path";
 
 import { AppGroupLifecycleError } from "../../app-group/lifecycle-error";
-import {
-  readRuntimeIdentity,
-  RUNTIME_HEADER,
-} from "../../daemon/runtime-identity";
 import { ProductCatalogError } from "../../project/catalog";
+import { readRuntimeIdentity, RUNTIME_HEADER } from "../host/runtime-identity";
 import { createBranchBaseServer } from "./branchbase-server";
 import type { BranchBaseServerController } from "./branchbase-server";
 
