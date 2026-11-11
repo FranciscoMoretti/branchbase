@@ -1,10 +1,14 @@
 import { expect, test } from "bun:test";
 
-import { readRuntimeIdentity, RUNTIME_HEADER } from "../host/runtime-identity";
+import { RUNTIME_HEADER } from "../host/runtime-identity";
 import { DaemonClient } from "./client";
 import { runCli } from "./run";
 
-const runtime = readRuntimeIdentity();
+const runtime = {
+  buildId: "cli-test",
+  installationPath: "/test",
+  version: "test",
+};
 const applicationPath = (url: URL): string =>
   url.pathname.replace(`/api/runtime/${runtime.buildId}`, "/api");
 const health = () =>
@@ -12,29 +16,33 @@ const health = () =>
 
 test("CLI validates commands before transport and sends the daemon session", async () => {
   const calls: string[] = [];
-  const client = new DaemonClient("http://localhost:3999", (url, init) => {
-    calls.push(applicationPath(url));
-    if (applicationPath(url) === "/api/health") {
-      return Promise.resolve(health());
-    }
-    expect(new Headers(init?.headers).get(RUNTIME_HEADER)).toBe(
-      runtime.buildId
-    );
-    if (applicationPath(url) === "/api/session") {
-      return Promise.resolve(Response.json({ token: "test-session" }));
-    }
-    expect(new Headers(init?.headers).get("x-branchbase-token")).toBe(
-      "test-session"
-    );
-    expect(init?.method).toBe("POST");
-    return Promise.resolve(
-      Response.json({
-        command: "clear-logs",
-        message: "Logs cleared",
-        ok: true,
-      })
-    );
-  });
+  const client = new DaemonClient(
+    "http://localhost:3999",
+    (url, init) => {
+      calls.push(applicationPath(url));
+      if (applicationPath(url) === "/api/health") {
+        return Promise.resolve(health());
+      }
+      expect(new Headers(init?.headers).get(RUNTIME_HEADER)).toBe(
+        runtime.buildId
+      );
+      if (applicationPath(url) === "/api/session") {
+        return Promise.resolve(Response.json({ token: "test-session" }));
+      }
+      expect(new Headers(init?.headers).get("x-branchbase-token")).toBe(
+        "test-session"
+      );
+      expect(init?.method).toBe("POST");
+      return Promise.resolve(
+        Response.json({
+          command: "clear-logs",
+          message: "Logs cleared",
+          ok: true,
+        })
+      );
+    },
+    runtime
+  );
   await expect(client.execute("start-apps", {})).rejects.toThrow();
   expect(calls).toEqual([]);
   expect(
@@ -61,16 +69,20 @@ test("CLI validates commands before transport and sends the daemon session", asy
 });
 
 test("CLI project status uses the same headless status query and defaults to cwd", async () => {
-  const client = new DaemonClient("http://localhost:3999", (url) => {
-    if (applicationPath(url) === "/api/health") {
-      return Promise.resolve(health());
-    }
-    expect(applicationPath(url)).toBe("/api/project-status");
-    expect(url.searchParams.get("repoPath")).toBe("/code/project");
-    return Promise.resolve(
-      Response.json({ configuration: { state: "unconfigured" } })
-    );
-  });
+  const client = new DaemonClient(
+    "http://localhost:3999",
+    (url) => {
+      if (applicationPath(url) === "/api/health") {
+        return Promise.resolve(health());
+      }
+      expect(applicationPath(url)).toBe("/api/project-status");
+      expect(url.searchParams.get("repoPath")).toBe("/code/project");
+      return Promise.resolve(
+        Response.json({ configuration: { state: "unconfigured" } })
+      );
+    },
+    runtime
+  );
   const output = await runCli(
     ["project", "status", "--json"],
     client,
@@ -83,16 +95,20 @@ test("CLI project status uses the same headless status query and defaults to cwd
 
 test("CLI never replays a command after an ambiguous connection failure", async () => {
   let posts = 0;
-  const client = new DaemonClient("http://localhost:3999", (url) => {
-    if (applicationPath(url) === "/api/health") {
-      return Promise.resolve(health());
-    }
-    if (applicationPath(url) === "/api/session") {
-      return Promise.resolve(Response.json({ token: "test-session" }));
-    }
-    posts += 1;
-    return Promise.reject(new Error("Connection lost"));
-  });
+  const client = new DaemonClient(
+    "http://localhost:3999",
+    (url) => {
+      if (applicationPath(url) === "/api/health") {
+        return Promise.resolve(health());
+      }
+      if (applicationPath(url) === "/api/session") {
+        return Promise.resolve(Response.json({ token: "test-session" }));
+      }
+      posts += 1;
+      return Promise.reject(new Error("Connection lost"));
+    },
+    runtime
+  );
   await expect(client.execute("scan-development-folders", {})).rejects.toThrow(
     "Connection lost"
   );
@@ -107,14 +123,18 @@ test.each([
   "CLI resolves repository path %s for status and logs",
   async (repo, expected) => {
     const paths: string[] = [];
-    const client = new DaemonClient("http://localhost:3999", (url) => {
-      if (applicationPath(url) === "/api/health") {
-        return Promise.resolve(health());
-      }
-      expect(url.searchParams.get("repoPath")).toBe(expected);
-      paths.push(applicationPath(url));
-      return Promise.resolve(Response.json({ lines: [] }));
-    });
+    const client = new DaemonClient(
+      "http://localhost:3999",
+      (url) => {
+        if (applicationPath(url) === "/api/health") {
+          return Promise.resolve(health());
+        }
+        expect(url.searchParams.get("repoPath")).toBe(expected);
+        paths.push(applicationPath(url));
+        return Promise.resolve(Response.json({ lines: [] }));
+      },
+      runtime
+    );
     await runCli(
       ["project", "status", "--repo", repo],
       client,
@@ -131,12 +151,15 @@ test.each([
 
 test("CLI preserves multiline plain-text logs and structured JSON logs", async () => {
   const lines = ["first", "second"];
-  const client = new DaemonClient("http://localhost:3999", (url) =>
-    Promise.resolve(
-      applicationPath(url) === "/api/health"
-        ? health()
-        : Response.json({ lines })
-    )
+  const client = new DaemonClient(
+    "http://localhost:3999",
+    (url) =>
+      Promise.resolve(
+        applicationPath(url) === "/api/health"
+          ? health()
+          : Response.json({ lines })
+      ),
+    runtime
   );
   const args = ["logs", "--worktree", "main", "--group", "app"];
   expect(await runCli(args, client, "/repo")).toBe("first\nsecond");
@@ -274,8 +297,10 @@ test.each(["query", "command"])(
 );
 
 test("CLI reports a daemon that is unavailable without rewriting the transport error", async () => {
-  const client = new DaemonClient("http://127.0.0.1:3999", () =>
-    Promise.reject(new Error("Failed to connect to daemon"))
+  const client = new DaemonClient(
+    "http://127.0.0.1:3999",
+    () => Promise.reject(new Error("Failed to connect to daemon")),
+    runtime
   );
   await expect(runCli(["project", "list"], client, "/repo")).rejects.toThrow(
     "Failed to connect to daemon"
@@ -284,40 +309,44 @@ test("CLI reports a daemon that is unavailable without rewriting the transport e
 
 test("exec passes resolved bindings to a real command and releases its reservation on failure", async () => {
   const calls: string[] = [];
-  const client = new DaemonClient("http://localhost:3999", (url, init) => {
-    calls.push(applicationPath(url));
-    if (applicationPath(url) === "/api/health") {
-      return Promise.resolve(health());
-    }
-    if (applicationPath(url) === "/api/session") {
-      return Promise.resolve(Response.json({ token: "test-session" }));
-    }
-    if (applicationPath(url) === "/api/commands/resource-command-context") {
+  const client = new DaemonClient(
+    "http://localhost:3999",
+    (url, init) => {
+      calls.push(applicationPath(url));
+      if (applicationPath(url) === "/api/health") {
+        return Promise.resolve(health());
+      }
+      if (applicationPath(url) === "/api/session") {
+        return Promise.resolve(Response.json({ token: "test-session" }));
+      }
+      if (applicationPath(url) === "/api/commands/resource-command-context") {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          appGroupName: "app",
+          repoPath: "/code/project",
+          worktreeId: "main",
+        });
+        return Promise.resolve(
+          Response.json({
+            cwd: process.cwd(),
+            env: { SELECTED_DATABASE: "core-api-1" },
+            inputs: {},
+            leaseId: "manual-consumer",
+          })
+        );
+      }
       expect(JSON.parse(String(init?.body))).toEqual({
-        appGroupName: "app",
-        repoPath: "/code/project",
-        worktreeId: "main",
+        leaseId: "manual-consumer",
       });
       return Promise.resolve(
         Response.json({
-          cwd: process.cwd(),
-          env: { SELECTED_DATABASE: "core-api-1" },
-          inputs: {},
-          leaseId: "manual-consumer",
+          command: "release-command-context",
+          message: "Released",
+          ok: true,
         })
       );
-    }
-    expect(JSON.parse(String(init?.body))).toEqual({
-      leaseId: "manual-consumer",
-    });
-    return Promise.resolve(
-      Response.json({
-        command: "release-command-context",
-        message: "Released",
-        ok: true,
-      })
-    );
-  });
+    },
+    runtime
+  );
   await expect(
     runCli(
       [

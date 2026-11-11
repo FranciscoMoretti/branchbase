@@ -10,6 +10,11 @@ import type { BranchBaseServerController } from "./branchbase-server";
 
 test("HTTP and CLI preserve partial Project status without requiring configured inspection", async () => {
   const appRoot = mkdtempSync(path.join(tmpdir(), "branchbase-status-http-"));
+  const runtime = {
+    buildId: "project-status-test",
+    installationPath: appRoot,
+    version: "test",
+  };
   const expected = createProjectStatus({
     configurationError: "Invalid configuration",
     repoPath: "/repo",
@@ -36,6 +41,7 @@ test("HTTP and CLI preserve partial Project status without requiring configured 
     development: false,
     enableCodexHooks: false,
     port: 0,
+    runtime,
   });
   try {
     const origin = await server.listen();
@@ -44,7 +50,7 @@ test("HTTP and CLI preserve partial Project status without requiring configured 
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(expected);
-    const cli = new DaemonClient(origin);
+    const cli = new DaemonClient(origin, fetch, runtime);
     expect(
       await cli.query("/api/project-status", { repoPath: "/repo" })
     ).toEqual(expected);

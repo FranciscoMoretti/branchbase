@@ -9,6 +9,12 @@ import { RUNTIME_HEADER } from "../host/runtime-identity";
 import { createBranchBaseServer } from "./branchbase-server";
 import type { BranchBaseServerController } from "./branchbase-server";
 
+const testRuntime = {
+  buildId: "http-test",
+  installationPath: "/test",
+  version: "test",
+};
+
 describe("BranchBase HTTP server", () => {
   it("preserves the product catalog error code for API callers", async () => {
     const appRoot = mkdtempSync(
@@ -34,6 +40,7 @@ describe("BranchBase HTTP server", () => {
       development: false,
       enableCodexHooks: false,
       port: 0,
+      runtime: testRuntime,
     });
 
     try {
@@ -76,6 +83,7 @@ describe("BranchBase HTTP server", () => {
       development: false,
       enableCodexHooks: false,
       port: 0,
+      runtime: testRuntime,
     });
 
     try {
@@ -231,6 +239,7 @@ describe("BranchBase HTTP server", () => {
       development: false,
       enableCodexHooks: false,
       port: 0,
+      runtime: testRuntime,
     });
 
     try {
@@ -275,6 +284,7 @@ describe("BranchBase HTTP server", () => {
       development: false,
       enableCodexHooks: false,
       port: 0,
+      runtime: testRuntime,
     });
 
     try {
@@ -314,6 +324,7 @@ describe("BranchBase HTTP server", () => {
       enableCodexHooks: false,
       host: "::1",
       port: 0,
+      runtime: testRuntime,
     });
 
     try {
@@ -350,6 +361,7 @@ describe("BranchBase HTTP server", () => {
       controller,
       development: false,
       port: 0,
+      runtime: testRuntime,
     });
 
     try {
