@@ -13,14 +13,10 @@ import {
 import { homedir } from "node:os";
 import pathModule from "node:path";
 
-import { DaemonClient } from "../src/adapters/cli/client";
-import { runCli } from "../src/adapters/cli/run";
-import { currentHost } from "../src/adapters/host/host-adapter";
-import { pollUntil } from "../src/adapters/host/polling";
 import {
-  repositoryPathFromArgs,
-  repositoryUrl,
-} from "../src/repository-context";
+  assertRuntimeUnchanged,
+  readRuntimeIdentity,
+} from "../src/adapters/host/runtime-identity";
 
 const APP_ROOT = pathModule.dirname(import.meta.dirname);
 const CONTROL_DIR = pathModule.join(homedir(), ".branchbase");
@@ -29,6 +25,25 @@ const LOG_FILE = pathModule.join(CONTROL_DIR, "server.log");
 const cliArgs = process.argv.slice(2);
 const daemonArgs = cliArgs[0] === "daemon" ? cliArgs.slice(1) : cliArgs;
 const [command] = daemonArgs;
+// Capture the installation before importing executable application code.
+// Stop deliberately bypasses identity checks so an upgrade cannot block recovery.
+const runtime = command === "stop" ? undefined : readRuntimeIdentity(APP_ROOT);
+const [
+  { DaemonClient },
+  { runCli },
+  { currentHost },
+  { pollUntil },
+  { repositoryPathFromArgs, repositoryUrl },
+] = await Promise.all([
+  import("../src/adapters/cli/client"),
+  import("../src/adapters/cli/run"),
+  import("../src/adapters/host/host-adapter"),
+  import("../src/adapters/host/polling"),
+  import("../src/repository-context"),
+]);
+if (runtime) {
+  assertRuntimeUnchanged(runtime);
+}
 const selectedRepoPath = repositoryPathFromArgs(
   daemonArgs.slice(1),
   process.env.INIT_CWD
@@ -118,6 +133,7 @@ const start = async (): Promise<void> => {
   mkdirSync(CONTROL_DIR, { recursive: true });
   const existing = readPid();
   if (existing && alive(existing)) {
+    await new DaemonClient(appUrl(), fetch, runtime).verifyRuntime(existing);
     console.log(`BranchBase is already running (pid ${existing}): ${appUrl()}`);
     return;
   }
@@ -139,12 +155,14 @@ const start = async (): Promise<void> => {
     `${JSON.stringify({ pid: child.pid, startMarker: startMarker(child.pid) })}\n`
   );
   await waitForHealth(child.pid);
+  await new DaemonClient(appUrl(), fetch, runtime).verifyRuntime(child.pid);
   console.log(`BranchBase started: ${appUrl()}`);
 };
 
-const status = (): void => {
+const status = async (): Promise<void> => {
   const pid = readPid();
   if (pid && alive(pid)) {
+    await new DaemonClient(appUrl(), fetch, runtime).verifyRuntime(pid);
     console.log(`BranchBase is running (pid ${pid})`);
     return;
   }
@@ -168,28 +186,31 @@ const stop = (): void => {
   console.log("BranchBase stopped");
 };
 
-if (command === "start") {
-  await start();
-} else if (command === "status") {
-  status();
-} else if (command === "stop") {
-  stop();
-} else if (command === "dashboard") {
-  openApp();
-  console.log(appUrl());
-} else {
-  try {
+try {
+  if (command === "start") {
+    await start();
+  } else if (command === "status") {
+    await status();
+  } else if (command === "stop") {
+    stop();
+  } else if (command === "dashboard") {
+    await new DaemonClient(appUrl(), fetch, runtime).verifyRuntime();
+    openApp();
+    console.log(appUrl());
+  } else {
     console.log(
       await runCli(
         cliArgs,
         new DaemonClient(
-          `http://127.0.0.1:${process.env.BRANCHBASE_PORT ?? 3999}`
+          `http://127.0.0.1:${process.env.BRANCHBASE_PORT ?? 3999}`,
+          fetch,
+          runtime
         ),
         process.cwd()
       )
     );
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
   }
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
 }

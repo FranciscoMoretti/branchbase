@@ -31,6 +31,13 @@ import {
 import { ProjectStatusSchema } from "../../project/status-contract";
 import { WorkspaceSnapshotSchema } from "../../project/worktree-status-contract";
 import { processStartMarker } from "../host/process-inspection";
+import {
+  DAEMON_RESTART_INSTRUCTIONS,
+  readRuntimeIdentity,
+  RUNTIME_HEADER,
+  RUNTIME_PATH_PREFIX,
+} from "../host/runtime-identity";
+import type { RuntimeIdentity } from "../host/runtime-identity";
 import { createCodexHookRequestHandler } from "./codex-hook-route";
 import {
   LogsQuerySchema,
@@ -70,6 +77,7 @@ export interface BranchBaseServerOptions {
   enableCodexHooks?: boolean;
   host?: string;
   port?: number;
+  runtime?: RuntimeIdentity;
 }
 
 export interface BranchBaseServer {
@@ -139,6 +147,7 @@ const readJson = async (request: IncomingMessage): Promise<unknown> => {
 export const createBranchBaseServer = async (
   options: BranchBaseServerOptions
 ): Promise<BranchBaseServer> => {
+  const runtime = options.runtime ?? readRuntimeIdentity();
   const controller = options.controller ?? new WorkspaceController();
   const host = options.host ?? "127.0.0.1";
   const configuredPort = options.port ?? 3999;
@@ -245,6 +254,7 @@ export const createBranchBaseServer = async (
       sendJson(response, 200, {
         ok: true,
         pid: process.pid,
+        runtime,
         service: "branchbase",
       });
       return true;
@@ -357,6 +367,25 @@ export const createBranchBaseServer = async (
         : httpOrigin(host, configuredPort)
     );
     try {
+      if (url.pathname.startsWith(RUNTIME_PATH_PREFIX)) {
+        const prefix = `${RUNTIME_PATH_PREFIX}${runtime.buildId}/`;
+        if (!url.pathname.startsWith(prefix)) {
+          sendJson(response, 409, {
+            code: "daemon-build-mismatch",
+            error: `CLI/daemon build mismatch. ${DAEMON_RESTART_INSTRUCTIONS}`,
+          });
+          return;
+        }
+        url.pathname = `/api/${url.pathname.slice(prefix.length)}`;
+      }
+      const expectedBuild = request.headers[RUNTIME_HEADER];
+      if (expectedBuild !== undefined && expectedBuild !== runtime.buildId) {
+        sendJson(response, 409, {
+          code: "daemon-build-mismatch",
+          error: `CLI/daemon build mismatch. ${DAEMON_RESTART_INSTRUCTIONS}`,
+        });
+        return;
+      }
       if (
         handleCodexHook &&
         request.method === "POST" &&

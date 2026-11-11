@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { once } from "node:events";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -222,7 +223,10 @@ try {
 
   const baseUrl = `http://127.0.0.1:${port}`;
   const health = await fetch(`${baseUrl}/api/health`);
-  const healthBody = (await health.json()) as { service?: string };
+  const healthBody = (await health.json()) as {
+    pid?: number;
+    service?: string;
+  };
   assert(
     health.ok && healthBody.service === "branchbase",
     "Packed daemon health check failed"
@@ -256,6 +260,58 @@ try {
     Array.isArray(projectList.projects),
     "Packed CLI project list did not return a projects array"
   );
+
+  // A second installation of the same version must not silently reuse this daemon.
+  const installedRoot = pathModule.dirname(
+    pathModule.dirname(realpathSync(cliPath))
+  );
+  const otherRoot = pathModule.join(
+    installDirectory,
+    "node_modules",
+    "branchbase-other"
+  );
+  cpSync(installedRoot, otherRoot, { recursive: true });
+  const otherCli = pathModule.join(otherRoot, "scripts", "daemon.ts");
+  for (const args of [["start"], ["status"], ["project", "list", "--json"]]) {
+    const mismatch = run(otherCli, args, {
+      allowFailure: true,
+      cwd: installDirectory,
+      env: daemonEnvironment,
+    });
+    assert(
+      mismatch.includes("CLI/daemon build mismatch") &&
+        mismatch.includes("bbase daemon stop"),
+      "A different installation silently reused the packed daemon"
+    );
+  }
+  // The live daemon must retain its startup identity after an in-place upgrade.
+  const installedMain = pathModule.join(
+    installedRoot,
+    "src",
+    "daemon",
+    "main.ts"
+  );
+  const originalMain = readFileSync(installedMain, "utf-8");
+  writeFileSync(
+    installedMain,
+    `${originalMain}\n// Same-version upgrade fixture\n`
+  );
+  const upgradedStart = run(cliPath, ["start"], {
+    allowFailure: true,
+    cwd: installDirectory,
+    env: daemonEnvironment,
+  });
+  assert(
+    upgradedStart.includes("CLI/daemon build mismatch"),
+    "An in-place upgrade changed the running daemon's reported identity"
+  );
+  writeFileSync(installedMain, originalMain);
+  const unchangedHealth = await fetch(`${baseUrl}/api/health`);
+  const unchangedBody = (await unchangedHealth.json()) as { pid?: number };
+  assert(
+    unchangedBody.pid === healthBody.pid,
+    "Build checks replaced the running daemon"
+  );
   const ui = await fetch(`${baseUrl}/`);
   const uiHtml = await ui.text();
   assert(
@@ -270,7 +326,7 @@ try {
   assert(assetResponse.ok, "Packed daemon did not serve its built UI asset");
 
   assert(
-    run(cliPath, ["stop"], {
+    run(otherCli, ["stop"], {
       cwd: installDirectory,
       env: daemonEnvironment,
     }).includes("BranchBase stopped"),
@@ -286,6 +342,26 @@ try {
     stoppedStatus.includes("BranchBase is stopped"),
     "Packed CLI status did not report the stopped daemon"
   );
+
+  assert(
+    run(otherCli, ["start"], {
+      cwd: installDirectory,
+      env: daemonEnvironment,
+    }).includes("BranchBase started"),
+    "The intended installation did not start after stopping the old daemon"
+  );
+  const restartedList = JSON.parse(
+    run(otherCli, ["project", "list", "--json"], {
+      cwd: installDirectory,
+      env: daemonEnvironment,
+    })
+  ) as { projects?: unknown[] };
+  assert(
+    Array.isArray(restartedList.projects),
+    "CLI requests did not recover after restarting from the intended installation"
+  );
+  run(otherCli, ["stop"], { cwd: installDirectory, env: daemonEnvironment });
+  await waitUntilStopped(`${baseUrl}/api/health`);
 
   const daemonLog = readFileSync(
     pathModule.join(homeDirectory, ".branchbase", "server.log"),

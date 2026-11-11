@@ -1,6 +1,6 @@
 {
   "name": "branchbase",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "A local control plane for running apps across Git worktrees.",
   "keywords": [
     "branchbase",
