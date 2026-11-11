@@ -3,9 +3,17 @@ import {
   parseCommandInput,
   parseCommandResult,
 } from "../../application/command-contract";
+import {
+  readRuntimeIdentity,
+  RUNTIME_HEADER,
+  RuntimeIdentitySchema,
+  runtimeMismatchMessage,
+} from "../../daemon/runtime-identity";
+import type { RuntimeIdentity } from "../../daemon/runtime-identity";
 
 export class DaemonClient {
   private readonly origin: string;
+  private readonly runtime: RuntimeIdentity;
   private readonly transport: (
     url: URL,
     init?: RequestInit
@@ -13,20 +21,66 @@ export class DaemonClient {
 
   constructor(
     origin: string,
-    transport: (url: URL, init?: RequestInit) => Promise<Response> = fetch
+    transport: (url: URL, init?: RequestInit) => Promise<Response> = fetch,
+    runtime: RuntimeIdentity = readRuntimeIdentity()
   ) {
     this.origin = origin;
     this.transport = transport;
+    this.runtime = runtime;
+  }
+
+  async verifyRuntime(expectedPid?: number): Promise<void> {
+    const response = await this.transport(new URL("/api/health", this.origin), {
+      signal: AbortSignal.timeout(5000),
+    });
+    const body = await DaemonClient.read(response);
+    if (
+      !body ||
+      typeof body !== "object" ||
+      !("service" in body) ||
+      body.service !== "branchbase" ||
+      !("ok" in body) ||
+      body.ok !== true ||
+      !("pid" in body) ||
+      !Number.isInteger(body.pid)
+    ) {
+      throw new Error("The endpoint is not a healthy BranchBase daemon.");
+    }
+    if (expectedPid !== undefined && body.pid !== expectedPid) {
+      throw new Error(
+        `The daemon endpoint belongs to PID ${body.pid}, not recorded PID ${expectedPid}. Check BRANCHBASE_PORT and the daemon status.`
+      );
+    }
+    const actual = RuntimeIdentitySchema.safeParse(
+      "runtime" in body ? body.runtime : undefined
+    );
+    if (
+      !actual.success ||
+      actual.data.buildId !== this.runtime.buildId ||
+      actual.data.installationPath !== this.runtime.installationPath ||
+      actual.data.version !== this.runtime.version
+    ) {
+      throw new Error(
+        runtimeMismatchMessage(
+          this.runtime,
+          actual.success ? actual.data : undefined
+        )
+      );
+    }
   }
 
   async query(
     path: string,
     parameters: Record<string, string> = {}
   ): Promise<unknown> {
+    await this.verifyRuntime();
     const url = new URL(path, this.origin);
     url.search = new URLSearchParams(parameters).toString();
     return DaemonClient.read(
-      await this.transport(url, { signal: AbortSignal.timeout(15_000) })
+      await this.transport(url, {
+        headers: { [RUNTIME_HEADER]: this.runtime.buildId },
+        signal: AbortSignal.timeout(15_000),
+      })
     );
   }
 
@@ -50,6 +104,7 @@ export class DaemonClient {
       {
         body: JSON.stringify(parsed),
         headers: {
+          [RUNTIME_HEADER]: this.runtime.buildId,
           "content-type": "application/json",
           "x-branchbase-token": session.token,
         },

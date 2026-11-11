@@ -90,6 +90,8 @@ bun scripts/daemon.ts dashboard --repo /path/to/repository
 
 `execute` exposes the same commands as the dashboard, including configuration and trust approval. Review the configuration and fingerprints in Project status before approving commands. Failed requests are not automatically retried, avoiding accidental duplicate mutations. The daemon must be running for queries and commands; `help` lists the interface.
 
+After upgrading or switching installations, daemon startup, status, dashboard opening, and CLI requests check the running daemon's build identity. The identity includes the canonical installation path and installed source/assets, so different builds of the same version are detected. A mismatch (including an older daemon without build identity support) exits with a restart instruction before sending application requests. Run `bbase daemon stop`, wait for the old daemon to exit, then `bbase daemon start` using the intended installation. For a source checkout, use `bun scripts/daemon.ts` in place of `bbase`. Build checks never stop the daemon or managed apps automatically, and `stop` remains available across build mismatches.
+
 See [Architecture](docs/architecture.md) for module ownership and dependency rules.
 
 ## Codex integration

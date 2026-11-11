@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import pathModule from "node:path";
 
 import { AppGroupLifecycleError } from "../../app-group/lifecycle-error";
+import {
+  readRuntimeIdentity,
+  RUNTIME_HEADER,
+} from "../../daemon/runtime-identity";
 import { ProductCatalogError } from "../../project/catalog";
 import { createBranchBaseServer } from "./branchbase-server";
 import type { BranchBaseServerController } from "./branchbase-server";
@@ -146,11 +150,26 @@ describe("BranchBase HTTP server", () => {
       const health = await fetch(new URL("/api/health", url));
       expect(await health.json()).toMatchObject({
         ok: true,
+        runtime: readRuntimeIdentity(),
         service: "branchbase",
       });
 
       const sessionResponse = await fetch(new URL("/api/session", url));
       const session = (await sessionResponse.json()) as { token: string };
+      const mismatched = await fetch(new URL("/api/commands/clear-logs", url), {
+        body: "{}",
+        headers: {
+          "content-type": "application/json",
+          [RUNTIME_HEADER]: "another-build",
+          "x-branchbase-token": session.token,
+        },
+        method: "POST",
+      });
+      expect(mismatched.status).toBe(409);
+      expect(await mismatched.json()).toMatchObject({
+        code: "daemon-build-mismatch",
+      });
+      expect(commandCalls).toBe(0);
       const unauthorized = await fetch(
         new URL("/api/commands/clear-logs", url),
         {
@@ -164,6 +183,7 @@ describe("BranchBase HTTP server", () => {
         body: "{}",
         headers: {
           "content-type": "application/json",
+          [RUNTIME_HEADER]: readRuntimeIdentity().buildId,
           "x-branchbase-token": session.token,
         },
         method: "POST",

@@ -1,12 +1,26 @@
 import { expect, test } from "bun:test";
 
+import {
+  readRuntimeIdentity,
+  RUNTIME_HEADER,
+} from "../../daemon/runtime-identity";
 import { DaemonClient } from "./client";
 import { runCli } from "./run";
+
+const runtime = readRuntimeIdentity();
+const health = () =>
+  Response.json({ ok: true, pid: 123, runtime, service: "branchbase" });
 
 test("CLI validates commands before transport and sends the daemon session", async () => {
   const calls: string[] = [];
   const client = new DaemonClient("http://localhost:3999", (url, init) => {
     calls.push(url.pathname);
+    if (url.pathname === "/api/health") {
+      return Promise.resolve(health());
+    }
+    expect(new Headers(init?.headers).get(RUNTIME_HEADER)).toBe(
+      runtime.buildId
+    );
     if (url.pathname === "/api/session") {
       return Promise.resolve(Response.json({ token: "test-session" }));
     }
@@ -40,11 +54,18 @@ test("CLI validates commands before transport and sends the daemon session", asy
       "/repo"
     )
   ).toBe("Logs cleared");
-  expect(calls).toEqual(["/api/session", "/api/commands/clear-logs"]);
+  expect(calls).toEqual([
+    "/api/health",
+    "/api/session",
+    "/api/commands/clear-logs",
+  ]);
 });
 
 test("CLI project status uses the same headless status query and defaults to cwd", async () => {
   const client = new DaemonClient("http://localhost:3999", (url) => {
+    if (url.pathname === "/api/health") {
+      return Promise.resolve(health());
+    }
     expect(url.pathname).toBe("/api/project-status");
     expect(url.searchParams.get("repoPath")).toBe("/code/project");
     return Promise.resolve(
@@ -64,6 +85,9 @@ test("CLI project status uses the same headless status query and defaults to cwd
 test("CLI never replays a command after an ambiguous connection failure", async () => {
   let posts = 0;
   const client = new DaemonClient("http://localhost:3999", (url) => {
+    if (url.pathname === "/api/health") {
+      return Promise.resolve(health());
+    }
     if (url.pathname === "/api/session") {
       return Promise.resolve(Response.json({ token: "test-session" }));
     }
@@ -85,6 +109,9 @@ test.each([
   async (repo, expected) => {
     const paths: string[] = [];
     const client = new DaemonClient("http://localhost:3999", (url) => {
+      if (url.pathname === "/api/health") {
+        return Promise.resolve(health());
+      }
       expect(url.searchParams.get("repoPath")).toBe(expected);
       paths.push(url.pathname);
       return Promise.resolve(Response.json({ lines: [] }));
@@ -105,8 +132,10 @@ test.each([
 
 test("CLI preserves multiline plain-text logs and structured JSON logs", async () => {
   const lines = ["first", "second"];
-  const client = new DaemonClient("http://localhost:3999", () =>
-    Promise.resolve(Response.json({ lines }))
+  const client = new DaemonClient("http://localhost:3999", (url) =>
+    Promise.resolve(
+      url.pathname === "/api/health" ? health() : Response.json({ lines })
+    )
   );
   const args = ["logs", "--worktree", "main", "--group", "app"];
   expect(await runCli(args, client, "/repo")).toBe("first\nsecond");
@@ -115,6 +144,97 @@ test("CLI preserves multiline plain-text logs and structured JSON logs", async (
   ).toEqual({
     lines,
   });
+});
+
+test.each([
+  undefined,
+  { ...runtime, buildId: "older-build" },
+  { ...runtime, installationPath: "/different/installation" },
+])(
+  "CLI blocks queries and mutations for a mismatched or legacy daemon (%j)",
+  async (daemonRuntime) => {
+    const calls: string[] = [];
+    const client = new DaemonClient(
+      "http://localhost:3999",
+      (url) => {
+        calls.push(url.pathname);
+        return Promise.resolve(
+          Response.json({
+            ok: true,
+            pid: 123,
+            runtime: daemonRuntime,
+            service: "branchbase",
+          })
+        );
+      },
+      runtime
+    );
+    await expect(client.query("/api/projects")).rejects.toThrow(
+      "bbase daemon stop"
+    );
+    await expect(
+      client.execute("scan-development-folders", {})
+    ).rejects.toThrow("bbase daemon start");
+    expect(calls).toEqual(["/api/health", "/api/health"]);
+  }
+);
+
+test("CLI verifies the recorded PID and rejects a different service", async () => {
+  const client = new DaemonClient(
+    "http://localhost:3999",
+    () => Promise.resolve(health()),
+    runtime
+  );
+  await expect(client.verifyRuntime(456)).rejects.toThrow(
+    "not recorded PID 456"
+  );
+  await client.verifyRuntime(123);
+  const foreign = new DaemonClient(
+    "http://localhost:3999",
+    () =>
+      Promise.resolve(
+        Response.json({ ok: true, pid: 123, runtime, service: "other" })
+      ),
+    runtime
+  );
+  await expect(foreign.query("/api/projects")).rejects.toThrow(
+    "not a healthy BranchBase daemon"
+  );
+});
+
+test("CLI rechecks identity when a daemon changes between requests", async () => {
+  let healthChecks = 0;
+  const client = new DaemonClient(
+    "http://localhost:3999",
+    (url) => {
+      if (url.pathname === "/api/health") {
+        healthChecks += 1;
+        return Promise.resolve(
+          healthChecks === 1
+            ? health()
+            : Response.json({ ok: true, pid: 123, service: "branchbase" })
+        );
+      }
+      return Promise.resolve(Response.json({ projects: [] }));
+    },
+    runtime
+  );
+  await client.query("/api/projects");
+  await expect(client.query("/api/projects")).rejects.toThrow(
+    "CLI/daemon build mismatch"
+  );
+  expect(healthChecks).toBe(2);
+});
+
+test("CLI help works without contacting the daemon", async () => {
+  const client = new DaemonClient(
+    "http://localhost:3999",
+    () => {
+      throw new Error("Help must remain offline");
+    },
+    runtime
+  );
+  expect(await runCli(["help"], client, "/repo")).toContain("bbase daemon");
 });
 
 test("CLI reports a daemon that is unavailable without rewriting the transport error", async () => {

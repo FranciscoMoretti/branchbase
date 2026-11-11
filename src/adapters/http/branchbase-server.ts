@@ -19,6 +19,11 @@ import {
   CodexIntegrationSnapshotSchema,
   CodexIntegrationUnavailableError,
 } from "../../codex/codex-integration";
+import {
+  DAEMON_RESTART_INSTRUCTIONS,
+  readRuntimeIdentity,
+  RUNTIME_HEADER,
+} from "../../daemon/runtime-identity";
 import { ProductCatalogError } from "../../project/catalog";
 import {
   ActivityResponseSchema,
@@ -139,6 +144,7 @@ const readJson = async (request: IncomingMessage): Promise<unknown> => {
 export const createBranchBaseServer = async (
   options: BranchBaseServerOptions
 ): Promise<BranchBaseServer> => {
+  const runtime = readRuntimeIdentity();
   const controller = options.controller ?? new WorkspaceController();
   const host = options.host ?? "127.0.0.1";
   const configuredPort = options.port ?? 3999;
@@ -245,6 +251,7 @@ export const createBranchBaseServer = async (
       sendJson(response, 200, {
         ok: true,
         pid: process.pid,
+        runtime,
         service: "branchbase",
       });
       return true;
@@ -357,6 +364,14 @@ export const createBranchBaseServer = async (
         : httpOrigin(host, configuredPort)
     );
     try {
+      const expectedBuild = request.headers[RUNTIME_HEADER];
+      if (expectedBuild !== undefined && expectedBuild !== runtime.buildId) {
+        sendJson(response, 409, {
+          code: "daemon-build-mismatch",
+          error: `CLI/daemon build mismatch. ${DAEMON_RESTART_INSTRUCTIONS}`,
+        });
+        return;
+      }
       if (
         handleCodexHook &&
         request.method === "POST" &&

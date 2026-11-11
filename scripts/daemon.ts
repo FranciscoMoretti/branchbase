@@ -118,6 +118,7 @@ const start = async (): Promise<void> => {
   mkdirSync(CONTROL_DIR, { recursive: true });
   const existing = readPid();
   if (existing && alive(existing)) {
+    await new DaemonClient(appUrl()).verifyRuntime(existing);
     console.log(`BranchBase is already running (pid ${existing}): ${appUrl()}`);
     return;
   }
@@ -139,12 +140,14 @@ const start = async (): Promise<void> => {
     `${JSON.stringify({ pid: child.pid, startMarker: startMarker(child.pid) })}\n`
   );
   await waitForHealth(child.pid);
+  await new DaemonClient(appUrl()).verifyRuntime(child.pid);
   console.log(`BranchBase started: ${appUrl()}`);
 };
 
-const status = (): void => {
+const status = async (): Promise<void> => {
   const pid = readPid();
   if (pid && alive(pid)) {
+    await new DaemonClient(appUrl()).verifyRuntime(pid);
     console.log(`BranchBase is running (pid ${pid})`);
     return;
   }
@@ -168,17 +171,18 @@ const stop = (): void => {
   console.log("BranchBase stopped");
 };
 
-if (command === "start") {
-  await start();
-} else if (command === "status") {
-  status();
-} else if (command === "stop") {
-  stop();
-} else if (command === "dashboard") {
-  openApp();
-  console.log(appUrl());
-} else {
-  try {
+try {
+  if (command === "start") {
+    await start();
+  } else if (command === "status") {
+    await status();
+  } else if (command === "stop") {
+    stop();
+  } else if (command === "dashboard") {
+    await new DaemonClient(appUrl()).verifyRuntime();
+    openApp();
+    console.log(appUrl());
+  } else {
     console.log(
       await runCli(
         cliArgs,
@@ -188,8 +192,8 @@ if (command === "start") {
         process.cwd()
       )
     );
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
   }
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
 }
