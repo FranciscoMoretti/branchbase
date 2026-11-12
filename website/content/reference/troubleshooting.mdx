@@ -13,6 +13,8 @@ Inspect the endpoint's ownership and the process using the port. Stop the known 
 
 An assigned instance retains its backing port. Editing a fixed port does not silently move an existing instance; reconcile the instance explicitly.
 
+For `portFromEnv`, stop the app group before editing its dotenv port. The next Start reserves the new port. Missing values retain an existing automatic assignment or use the configured literal fallback; invalid nonempty values fail visibly.
+
 ## Applications stopped, infrastructure running
 
 This is a valid state. Applications and infrastructure have separate lifecycles. Start the application if needed, or stop the idle resource explicitly when it has no consumers.

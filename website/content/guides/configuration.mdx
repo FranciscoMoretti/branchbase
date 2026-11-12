@@ -38,6 +38,25 @@ TCP readiness is the default. HTTP readiness accepts status codes `200–399` un
 
 Omit `port` for dynamic allocation. An explicit `port` must be between 1024 and 65535; a conflict fails instead of silently selecting another port. Assigned instance ports are retained across Stop and Restart.
 
+### Ports from a worktree's dotenv file
+
+Use `portFromEnv` when a repository's existing setup writes local port assignments:
+
+```json
+{
+  "web": {
+    "protocol": "http",
+    "portFromEnv": { "file": ".env.local", "variable": "WEB_PORT" }
+  }
+}
+```
+
+BranchBase resolves `file` from the worktree owning the run, even when the configuration is inherited from the primary worktree. It reads the named dotenv value before allocating backing endpoints and constructing environment templates. Bind the resulting port with `{apps.web.port}` as usual; Start must use that binding rather than calculate another port.
+
+A nonempty value must be an integer between 1024 and 65535. Invalid values and occupied ports fail instead of silently choosing another port. A missing file, absent variable, or empty value falls back to `port` when supplied, otherwise normal automatic assignment. An existing automatic assignment remains stable when the file has no port.
+
+Stop the app group before changing a file-configured port. The next Start reserves the new value and updates the backing endpoint; its Friendly URL keeps the same identity. A live run cannot be moved to another port. This stopped-instance reassignment applies only to `portFromEnv`; editing a literal `port` retains the existing explicit-reconciliation requirement.
+
 ## Environment templates
 
 | Token | Value |

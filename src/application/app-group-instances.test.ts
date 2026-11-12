@@ -272,7 +272,10 @@ const createCrossGroupFixture = (): {
                 type: "http",
               },
             },
-            Web: { protocol: "http" },
+            Web: {
+              portFromEnv: { file: ".env.instance", variable: "WEB_PORT" },
+              protocol: "http",
+            },
           },
           env: {
             DATABASE_PORT: "{appGroups.Services.apps.Database.port}",
@@ -722,6 +725,168 @@ describe("App-group instance assignment", () => {
       rmSync(temporary, { force: true, recursive: true });
     }
   }, 10_000);
+
+  it("retains a file-configured port across restart and changes it only after Stop", async () => {
+    const { controller, repository, temporary, worktreeId } =
+      createCrossGroupFixture();
+    const reservation = createServer();
+    await listen(reservation, 0);
+    const port = listenerPort(reservation);
+    await close(reservation);
+    writeFileSync(
+      pathModule.join(repository, ".env.instance"),
+      `WEB_PORT=${port}\n`
+    );
+    try {
+      await controller.startAppGroup(repository, worktreeId, "Apps");
+      const apps = requiredAppGroup(
+        requiredWorktree(controller.inspect(repository), true),
+        "Apps"
+      );
+      expect(requiredApp(apps, "Web").port).toBe(port);
+      const friendlyUrl = requiredApp(apps, "Web").url;
+      expect(friendlyUrl).toBeString();
+      const response = await fetch(`http://127.0.0.1:${port}`);
+      expect(response.status).toBe(200);
+      await controller.stopAppGroup(repository, worktreeId, "Apps");
+      await controller.startAppGroup(repository, worktreeId, "Apps");
+      expect(
+        requiredApp(
+          requiredAppGroup(
+            requiredWorktree(controller.inspect(repository), true),
+            "Apps"
+          ),
+          "Web"
+        ).port
+      ).toBe(port);
+      const nextReservation = createServer();
+      await listen(nextReservation, 0);
+      const nextPort = listenerPort(nextReservation);
+      await close(nextReservation);
+      writeFileSync(
+        pathModule.join(repository, ".env.instance"),
+        `WEB_PORT=${nextPort}\n`
+      );
+      await expect(
+        controller.startAppGroup(repository, worktreeId, "Apps")
+      ).rejects.toThrow(
+        "Stop Apps before changing the configured port for Web"
+      );
+      const runningResponse = await fetch(`http://127.0.0.1:${port}`);
+      expect(runningResponse.status).toBe(200);
+      await controller.stopAppGroup(repository, worktreeId, "Apps");
+      await controller.startAppGroup(repository, worktreeId, "Apps");
+      expect(
+        requiredApp(
+          requiredAppGroup(
+            requiredWorktree(controller.inspect(repository), true),
+            "Apps"
+          ),
+          "Web"
+        ).port
+      ).toBe(nextPort);
+      expect(
+        requiredApp(
+          requiredAppGroup(
+            requiredWorktree(controller.inspect(repository), true),
+            "Apps"
+          ),
+          "Web"
+        ).url
+      ).toBe(friendlyUrl);
+      const nextResponse = await fetch(`http://127.0.0.1:${nextPort}`);
+      expect(nextResponse.status).toBe(200);
+    } finally {
+      await controller.stopAppGroup(repository, worktreeId, "Apps");
+      await controller.close();
+      rmSync(temporary, { force: true, recursive: true });
+    }
+  }, 20_000);
+
+  it("rejects an occupied file-configured port before executing Start", async () => {
+    const { controller, repository, temporary, worktreeId } =
+      createCrossGroupFixture();
+    const blocker = createServer();
+    await listen(blocker, 0);
+    const port = listenerPort(blocker);
+    writeFileSync(
+      pathModule.join(repository, ".env.instance"),
+      `WEB_PORT=${port}\n`
+    );
+    try {
+      await expect(
+        controller.startAppGroup(repository, worktreeId, "Apps")
+      ).rejects.toThrow();
+      expect(existsSync(pathModule.join(repository, "resolved-env.txt"))).toBe(
+        false
+      );
+      expect(
+        requiredApp(
+          requiredAppGroup(
+            requiredWorktree(controller.inspect(repository), true),
+            "Apps"
+          ),
+          "Web"
+        ).port
+      ).toBeNull();
+      expect(blocker.listening).toBe(true);
+    } finally {
+      await close(blocker);
+      await controller.close();
+      rmSync(temporary, { force: true, recursive: true });
+    }
+  });
+
+  it("uses each worktree's dotenv port with inherited project configuration", async () => {
+    const { controller, repository, temporary, worktreeId } =
+      createCrossGroupFixture();
+    git(repository, "config", "user.email", "branchbase@example.test");
+    git(repository, "config", "user.name", "BranchBase Test");
+    git(repository, "add", ".branchbase.json");
+    git(repository, "commit", "-qm", "test config");
+    const featurePath = pathModule.join(temporary, "feature");
+    git(repository, "worktree", "add", "-qb", "feature", featurePath);
+    const reservations = [createServer(), createServer()];
+    await Promise.all(reservations.map((server) => listen(server, 0)));
+    const [mainPort, featurePort] = reservations.map(listenerPort);
+    await Promise.all(reservations.map(close));
+    writeFileSync(
+      pathModule.join(repository, ".env.instance"),
+      `WEB_PORT=${mainPort}\n`
+    );
+    writeFileSync(
+      pathModule.join(featurePath, ".env.instance"),
+      `WEB_PORT=${featurePort}\n`
+    );
+    const feature = requiredWorktree(controller.inspect(repository), false);
+    try {
+      expect(feature.configuration.source).toBe("project-default");
+      await controller.startAppGroup(repository, worktreeId, "Apps");
+      await controller.startAppGroup(repository, feature.id, "Apps");
+      const snapshot = controller.inspect(repository);
+      const mainApp = requiredApp(
+        requiredAppGroup(requiredWorktree(snapshot, true), "Apps"),
+        "Web"
+      );
+      const featureApp = requiredApp(
+        requiredAppGroup(requiredWorktree(snapshot, false), "Apps"),
+        "Web"
+      );
+      expect(mainApp.port).toBe(mainPort);
+      expect(featureApp.port).toBe(featurePort);
+      expect(mainApp.url).not.toBe(featureApp.url);
+      const responses = await Promise.all([
+        fetch(`http://127.0.0.1:${mainPort}`),
+        fetch(`http://127.0.0.1:${featurePort}`),
+      ]);
+      expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    } finally {
+      await controller.stopAppGroup(repository, worktreeId, "Apps");
+      await controller.stopAppGroup(repository, feature.id, "Apps");
+      await controller.close();
+      rmSync(temporary, { force: true, recursive: true });
+    }
+  }, 20_000);
 
   it("materializes cross-group ports before Start and keeps them stable across Restart", async () => {
     const fixture = createCrossGroupFixture();

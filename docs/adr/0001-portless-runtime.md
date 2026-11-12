@@ -51,7 +51,9 @@ This makes URL allocation deterministic for an identity and removes the order-de
 
 Before Start, BranchBase materializes all Backing endpoints needed by every App-group instance selected for the worktree. Allocation is dynamic but stable for the lifetime of the local instance record, so ports do not change across Stop and Restart. BranchBase verifies availability before executing repository code and retains the assignment after route deactivation.
 
-The normal model has no slots, stride, or required base ports. Optional reserved ports remain deferred.
+The normal model has no slots, stride, or required base ports. A repository may explicitly request a literal `port` or a `portFromEnv` dotenv value resolved from the worktree owning the run. Missing file values use the literal fallback or normal stable automatic assignment. Invalid values and conflicts fail before repository commands execute. BranchBase does not infer slot numbers or port arithmetic from names or paths.
+
+A changed file-configured port may replace a stopped instance's Backing endpoint after the new port is reserved. Active runs retain their endpoints; changing a literal fixed port still requires explicit reconciliation. Friendly URL identity remains stable across a stopped file-port change.
 
 ## Independent runtime dimensions
 
@@ -93,7 +95,7 @@ Stop follows this order:
 
 If route deactivation or a repository Stop command fails, BranchBase still terminates its managed process so Stop remains under user control. It keeps routes disabled where possible, quarantines any affected or still-listening Backing port, and does not make that port available to another process until both the route and listener are observed inactive. The app group reports a Stop failure that the dashboard can surface and retry.
 
-Restart completes Stop before performing Start. It reconstructs the environment from the same stable Backing endpoints, endpoint identity, Friendly URLs, and captured cross-group instance selections.
+Restart completes Stop before performing Start. It reconstructs the environment from stable Backing endpoints unless a declared dotenv port changed while the group was stopped. Endpoint identity and Friendly URLs remain stable, and the run captures its cross-group instance selections.
 
 ## Crash and recovery
 

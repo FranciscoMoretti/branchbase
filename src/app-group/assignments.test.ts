@@ -314,6 +314,24 @@ describe("BranchBase local App-group instance state", () => {
       );
       expect(Object.values(restored.endpoints)[0]?.port).toBe(43_127);
       expect(store.leasedPorts()).toEqual(new Set([43_127]));
+      const key = { instanceId: instance.id, repoPath: request().repoPath };
+      expect(() => store.assignEndpointPort(key, "web", 43_128)).toThrow(
+        "stable backing port"
+      );
+      store.assignEndpointPort(key, "web", 43_128, true);
+      expect(store.leasedPorts()).toEqual(new Set([43_128]));
+      store.saveRun(key, {
+        apps: {},
+        createdAt: new Date().toISOString(),
+        groupId: request().groupId,
+        instanceId: instance.id,
+        instanceIdsByGroup: { [request().groupId]: instance.id },
+        worktreePath: request().worktreePath,
+      });
+      expect(() => store.assignEndpointPort(key, "web", 43_129, true)).toThrow(
+        "stable backing port"
+      );
+      expect(store.leasedPorts()).toEqual(new Set([43_128]));
     } finally {
       rmSync(directory, { force: true, recursive: true });
     }

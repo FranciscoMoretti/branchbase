@@ -730,7 +730,8 @@ export class FileBranchBaseStateStore {
   assignEndpointPort(
     key: RunKey,
     appId: string,
-    port: number
+    port: number,
+    allowStoppedReassignment = false
   ): EndpointAssignment {
     const state = this.read();
     const instance =
@@ -739,7 +740,11 @@ export class FileBranchBaseStateStore {
     if (!(instance && endpoint)) {
       throw new Error("Endpoint identity must be assigned before its port");
     }
-    if (endpoint.port !== null && endpoint.port !== port) {
+    if (
+      endpoint.port !== null &&
+      endpoint.port !== port &&
+      (!allowStoppedReassignment || instance.run !== null)
+    ) {
       throw new Error(`${appId} already has a stable backing port`);
     }
     endpoint.port = port;

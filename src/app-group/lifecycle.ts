@@ -22,6 +22,7 @@ import type {
   LocalRouteState,
   LocalRoutingEngine,
 } from "../adapters/routing/portless";
+import { configuredAppPort } from "../configuration/app-port";
 import {
   resolveStartCommand,
   resolveStopCommand,
@@ -2297,19 +2298,32 @@ export class AppGroupRuntime {
             instance,
             repoPath: target.repoPath,
           });
+          const requestedPort = configuredAppPort(app, target.worktree.path);
           if (assignment.port !== null) {
-            if (app.port && app.port !== assignment.port) {
+            if (!requestedPort || requestedPort === assignment.port) {
+              continue;
+            }
+            if (!app.portFromEnv) {
               throw new Error(
-                `Instance endpoint ${appId} retains port ${assignment.port}; explicit reconciliation is required before changing it to ${app.port}`
+                `Instance endpoint ${appId} retains port ${assignment.port}; explicit reconciliation is required before changing it to ${requestedPort}`
               );
             }
-            continue;
+            if (this.state.run(key) !== null) {
+              throw new Error(
+                `Stop ${groupId} before changing the configured port for ${appId}`
+              );
+            }
           }
           // oxlint-disable-next-line no-await-in-loop -- Port reservations update shared leased state sequentially.
-          const reservation = await reserveBackingPort(leased, app.port);
+          const reservation = await reserveBackingPort(leased, requestedPort);
           reservations.push(reservation);
           leased.add(reservation.port);
-          this.state.assignEndpointPort(key, appId, reservation.port);
+          this.state.assignEndpointPort(
+            key,
+            appId,
+            reservation.port,
+            app.portFromEnv !== undefined
+          );
         }
       }
     } finally {

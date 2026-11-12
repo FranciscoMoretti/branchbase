@@ -45,6 +45,12 @@ export const BranchBaseReadinessSchema = z.union([
 export const BranchBaseAppSchema = z.strictObject({
   name: z.string().min(1).optional(),
   port: z.number().int().min(1024).max(65_535).optional(),
+  portFromEnv: z
+    .strictObject({
+      file: z.string().min(1),
+      variable: BranchBaseEnvironmentNameSchema,
+    })
+    .optional(),
   protocol: z.enum(["http", "tcp"]),
   readiness: BranchBaseReadinessSchema.default("tcp"),
 });
