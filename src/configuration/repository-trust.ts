@@ -49,6 +49,9 @@ export const repositoryCommandFingerprint = (
       ])
     ),
     setup: fingerprintCommand(config.setup),
+    ...(config.endpointProfiles
+      ? { endpointProfiles: config.endpointProfiles }
+      : {}),
     ...(config.profiles ? { profiles: config.profiles } : {}),
   };
   return createHash("sha256")

@@ -250,6 +250,33 @@ Stopping the foreground development server releases its ownership lease and stop
 
 Git, configuration, port inspection, process ownership, and command rules stay behind `WorkspaceController` and its internal modules.
 
+## Worktree endpoint profiles
+
+Keep one shared configuration while giving a chosen worktree exact local ports. Add an optional section to `.branchbase.json`, using existing group and app IDs:
+
+```json
+"endpointProfiles": {
+  "localhost": {
+    "name": "Localhost",
+    "ports": { "development": { "web": 3000, "api": 8000 } }
+  }
+}
+```
+
+In the worktree view, select **Endpoint profile → Localhost → Apply endpoints**. Other worktrees use the Project default: literal configured ports, or stable automatic assignments when no literal port is declared. Existing environment and argv bindings such as `{apps.web.port}` receive the assigned value.
+
+The same operation is available without the dashboard:
+
+```sh
+bbase execute select-endpoint-profile --input '{"repoPath":"/path/to/project","worktreeId":"WORKTREE_ID","profileId":"localhost"}'
+```
+
+Use `"profileId":null` to return to Project default. Find worktree IDs with `bbase project status --repo /path/to/project --json`.
+
+Apply only after stopping the affected apps and releasing `bbase exec` command contexts. All requested ports are checked before the selection changes; a conflict leaves the previous assignments intact. Another worktree's reservations are protected even while stopped. Stop and Restart retain the selection. Changes do not start apps or alter Friendly URLs. Profiles support per-worktree application groups; shared and infrastructure endpoints retain their existing configuration. A profile cannot contradict an app's literal `port`.
+
+Direct URLs continue to use `127.0.0.1`. A tool configured for `localhost` can use the selected port, but the two hostnames remain different browser origins; authentication-origin configuration is separate.
+
 ## Resource profiles
 
 Use shared project infrastructure, isolated resources per worktree, or existing services on your machine. Profiles support branch rules, connection previews, dependency startup, and explicit restarts when switching. See the [resource profiles guide](docs/resource-profiles.md) for configuration and Docker Compose examples.

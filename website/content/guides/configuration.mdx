@@ -65,3 +65,24 @@ A foreground worker can declare `"apps": {}` with `"stop": "process"`. Its runni
 Configuration edits can change the command fingerprint. Review and approve the current configuration before running it. Resource-owner recipes have their own approval, independent of the consuming project's approval.
 
 The JSON contracts are maintained in [branchbase.schema.json](https://github.com/FranciscoMoretti/branchbase/blob/main/schema/branchbase.schema.json) and [managed-resource.schema.json](https://github.com/FranciscoMoretti/branchbase/blob/main/schema/managed-resource.schema.json).
+
+## Worktree endpoint profiles
+
+An optional `endpointProfiles` section defines exact ports without copying the project configuration:
+
+```json
+"endpointProfiles": {
+  "localhost": {
+    "name": "Localhost",
+    "ports": { "development": { "web": 3000, "api": 8000 } }
+  }
+}
+```
+
+Use your existing app-group and app IDs. Choose a profile in the worktree's **Endpoint profile** panel and click **Apply endpoints**. Other worktrees keep their Project default assignments. Unspecified apps use their configured literal port or stable automatic allocation. Startup commands must consume `{apps.web.port}` through environment or argv bindings.
+
+Stop affected apps and release command contexts before applying. BranchBase checks every requested port before changing the selection, never silently substitutes a port, and never takes another worktree's reservation. Stop, Restart, and daemon restarts retain assignments. Choosing **Project default** removes the profile pins. A removed selected profile must be replaced or cleared before starting again.
+
+Only per-worktree application groups support these profiles. Shared instances, infrastructure, and resource profiles keep their existing behavior. Literal `port` values cannot be overridden with contradictory profile values. Profile definitions are part of the configuration reviewed for command trust.
+
+Direct URLs use `127.0.0.1`; `localhost` is a different browser origin. Endpoint profiles do not configure authentication callbacks.

@@ -18,6 +18,7 @@ const EndpointAssignmentSchema = z.strictObject({
   hostname: NonEmptyStringSchema,
   id: NonEmptyStringSchema,
   port: PortSchema.nullable(),
+  requestedPort: PortSchema.nullable().default(null),
   routeLabel: NonEmptyStringSchema,
 });
 
@@ -94,6 +95,7 @@ const AppGroupInstanceSchema = z.strictObject({
 
 const WorktreeRecordSchema = z.strictObject({
   configSource: WorktreeConfigSourceSchema.default("project-default"),
+  endpointProfile: z.string().min(1).nullable().default(null),
   id: NonEmptyStringSchema,
   instanceSelections: z.record(z.string(), NonEmptyStringSchema),
   path: NonEmptyStringSchema,
@@ -255,6 +257,7 @@ const migrateLegacyState = (
     )) {
       migrated.worktrees[worktreePath] = {
         configSource: "project-default",
+        endpointProfile: null,
         id: worktree.id,
         instanceSelections: {},
         path: worktree.path,
@@ -275,6 +278,7 @@ const migrateLegacyState = (
               {
                 ...endpoint,
                 port: legacyRun?.apps[endpoint.appId]?.port ?? null,
+                requestedPort: null,
               } satisfies EndpointAssignment,
             ])
         );
@@ -339,6 +343,7 @@ const getWorktreeRecord = (
   const id = randomUUID();
   const record: WorktreeRecord = {
     configSource: "project-default",
+    endpointProfile: null,
     id,
     instanceSelections: {},
     path: request.worktreePath,
@@ -462,6 +467,52 @@ export class FileBranchBaseStateStore {
 
   worktreeIdentity(repoPath: string, worktreePath: string): string | undefined {
     return this.read().repositories[repoPath]?.worktrees[worktreePath]?.id;
+  }
+
+  worktreeEndpointProfile(
+    repoPath: string,
+    worktreePath: string
+  ): string | null {
+    return (
+      this.read().repositories[repoPath]?.worktrees[worktreePath]
+        ?.endpointProfile ?? null
+    );
+  }
+
+  applyEndpointProfile(
+    repoPath: string,
+    worktreePath: string,
+    profileId: string | null,
+    updates: {
+      instanceId: string;
+      appId: string;
+      port: number | null;
+      requestedPort: number | null;
+    }[]
+  ): void {
+    const state = this.read();
+    const repository = state.repositories[repoPath];
+    const worktree = repository?.worktrees[worktreePath];
+    if (!worktree) {
+      throw new Error("Unknown worktree");
+    }
+    for (const update of updates) {
+      const instance = repository.instances[update.instanceId];
+      const endpoint =
+        instance?.endpoints[endpointKey(instance.groupId, update.appId)];
+      if (
+        !endpoint ||
+        instance.mode !== "per-worktree" ||
+        instance.worktreePath !== worktreePath ||
+        instance.run
+      ) {
+        throw new Error("Endpoint assignment changed; refresh and try again");
+      }
+      endpoint.port = update.port;
+      endpoint.requestedPort = update.requestedPort;
+    }
+    worktree.endpointProfile = profileId;
+    this.write(state);
   }
 
   allResourceInstances(): { repoPath: string; instance: AppGroupInstance }[] {
@@ -720,6 +771,7 @@ export class FileBranchBaseStateStore {
       hostname: `${label}.${instance.routeLabel}.${repository.routeLabel}.localhost`,
       id,
       port: null,
+      requestedPort: null,
       routeLabel: label,
     };
     instance.endpoints[key] = assignment;
@@ -730,7 +782,8 @@ export class FileBranchBaseStateStore {
   assignEndpointPort(
     key: RunKey,
     appId: string,
-    port: number
+    port: number,
+    requestedPort: number | null = null
   ): EndpointAssignment {
     const state = this.read();
     const instance =
@@ -743,6 +796,7 @@ export class FileBranchBaseStateStore {
       throw new Error(`${appId} already has a stable backing port`);
     }
     endpoint.port = port;
+    endpoint.requestedPort = requestedPort;
     this.write(state);
     return structuredClone(endpoint);
   }

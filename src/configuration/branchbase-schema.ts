@@ -3,6 +3,10 @@ import { z } from "zod";
 import { BranchBaseCommandSchema } from "./branchbase-command";
 import { branchbaseTemplateError } from "./branchbase-template";
 import {
+  EndpointProfilesSchema,
+  supportsEndpointProfile,
+} from "./endpoint-profiles";
+import {
   ResourceProfilesSchema,
   dependencyOrder,
   resolveResourceProfile,
@@ -88,6 +92,7 @@ export type BranchBaseAppGroup = z.infer<typeof BranchBaseAppGroupSchema>;
 const BranchBaseConfigObjectSchema = z.strictObject({
   $schema: z.string().optional(),
   appGroups: z.record(BranchBaseAppGroupNameSchema, BranchBaseAppGroupSchema),
+  endpointProfiles: EndpointProfilesSchema.optional(),
   managedResources: z
     .record(
       z.string().regex(/^[a-zA-Z0-9_-]+$/u),
@@ -167,6 +172,55 @@ const validateProfiles = (
   }
 };
 
+const validateEndpointProfiles = (
+  config: BranchBaseConfigShape,
+  context: z.RefinementCtx
+): void => {
+  for (const [profileId, profile] of Object.entries(
+    config.endpointProfiles ?? {}
+  )) {
+    for (const [groupId, apps] of Object.entries(profile.ports)) {
+      const group = config.appGroups[groupId];
+      if (!group || !supportsEndpointProfile(group)) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "Endpoint profiles support existing per-worktree application groups only",
+          path: ["endpointProfiles", profileId, "ports", groupId],
+        });
+        continue;
+      }
+      for (const [appId, port] of Object.entries(apps)) {
+        const app = group.apps[appId];
+        if (!app || (app.port !== undefined && app.port !== port)) {
+          context.addIssue({
+            code: "custom",
+            message:
+              "Endpoint profiles require unique ports on existing per-worktree application apps, consistent with literal ports",
+            path: ["endpointProfiles", profileId, "ports", groupId, appId],
+          });
+        }
+      }
+    }
+    const resolved = new Set<number>();
+    for (const [groupId, group] of Object.entries(config.appGroups)) {
+      for (const [appId, app] of Object.entries(group.apps)) {
+        const port = profile.ports[groupId]?.[appId] ?? app.port;
+        if (port !== undefined && resolved.has(port)) {
+          context.addIssue({
+            code: "custom",
+            message: `Port ${port} is requested by multiple apps`,
+            path: ["endpointProfiles", profileId],
+          });
+        }
+        if (port !== undefined) {
+          resolved.add(port);
+        }
+      }
+    }
+  }
+};
+
 const validateBranchBaseConfig = (
   config: BranchBaseConfigShape,
   context: z.RefinementCtx
@@ -181,6 +235,7 @@ const validateBranchBaseConfig = (
     return;
   }
 
+  validateEndpointProfiles(config, context);
   validateProfiles(config, context);
   for (const [groupId, group] of groups) {
     try {

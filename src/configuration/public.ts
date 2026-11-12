@@ -37,3 +37,5 @@ export {
 } from "./resource-profiles";
 
 export { ManagedResourceDefinitionSchema } from "./managed-resource-schema";
+
+export { EndpointProfilesSchema } from "./endpoint-profiles";

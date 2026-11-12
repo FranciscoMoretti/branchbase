@@ -102,6 +102,10 @@ const INPUT_SCHEMAS = {
   "select-app-group-instance": StartStopSchema.extend({
     instanceId: z.string().min(1),
   }),
+  "select-endpoint-profile": RepositoryPathSchema.extend({
+    profileId: z.string().min(1).nullable(),
+    worktreeId: z.string().min(1),
+  }),
   "select-resource-profile": RepositoryPathSchema.extend({
     profileId: z.string().min(1).nullable(),
     restart: z.boolean(),
@@ -162,6 +166,7 @@ const RESULT_SCHEMAS = {
   "save-project": CommandReceiptSchema,
   "scan-development-folders": CommandReceiptSchema,
   "select-app-group-instance": CommandReceiptSchema,
+  "select-endpoint-profile": CommandReceiptSchema,
   "select-resource-profile": CommandReceiptSchema,
   "select-worktree-config-source": CommandReceiptSchema,
   "setup-all-apps": CommandReceiptSchema,

@@ -232,6 +232,18 @@ const COMMAND_HANDLERS: Record<BranchBaseCommandName, CommandHandler> = {
     };
   },
   "select-app-group-instance": selectAppGroupInstance,
+  "select-endpoint-profile": async (controller, input) => {
+    await controller.selectEndpointProfile(
+      String(input.repoPath),
+      String(input.worktreeId),
+      input.profileId === null ? null : String(input.profileId)
+    );
+    return {
+      command: "select-endpoint-profile",
+      message: "Endpoint profile applied",
+      ok: true as const,
+    };
+  },
   "select-resource-profile": async (controller, input) => {
     await controller.selectResourceProfile(
       String(input.repoPath),
@@ -646,6 +658,30 @@ export class WorkspaceController {
     );
   }
 
+  async selectEndpointProfile(
+    repoPath: string,
+    worktreeId: string,
+    profileId: string | null
+  ): Promise<void> {
+    const { workspace, worktree } = this.worktree(repoPath, worktreeId);
+    if (
+      worktree.setupState === "running" ||
+      this.appGroups.hasPendingLifecycle(worktree.path)
+    ) {
+      throw new Error(
+        "Wait for setup and lifecycle operations before changing endpoint profiles."
+      );
+    }
+    await this.appGroups.selectEndpointProfile(
+      this.appGroupTarget(
+        workspace.repoPath,
+        worktree.id,
+        worktree.primaryAppGroup
+      ),
+      profileId
+    );
+  }
+
   async selectResourceProfile(
     repoPath: string,
     worktreeId: string,
@@ -682,6 +718,20 @@ export class WorkspaceController {
     workspace.managedResources = this.appGroups.managedCatalog();
     for (const worktree of workspace.worktrees) {
       const config = loadBranchBaseConfig(worktree.configuration.path);
+      const selected = this.state.worktreeEndpointProfile(
+        workspace.repoPath,
+        worktree.path
+      );
+      worktree.endpointProfile = {
+        choices: Object.entries(config.endpointProfiles ?? {}).map(
+          ([id, profile]) => ({ id, ...profile })
+        ),
+        error:
+          selected !== null && !config.endpointProfiles?.[selected]
+            ? `Endpoint profile "${selected}" is unavailable. Select another profile or the Project default.`
+            : null,
+        id: selected,
+      };
       worktree.profile = this.appGroups.profileStatus({
         config,
         groupId: worktree.primaryAppGroup,
@@ -1141,6 +1191,11 @@ export class WorkspaceController {
 
   startSetup(repoPath: string, worktreeIdValue: string): void {
     const { workspace, worktree } = this.worktree(repoPath, worktreeIdValue);
+    if (this.appGroups.hasPendingLifecycle(worktree.path)) {
+      throw new Error(
+        "Wait for the current lifecycle operation before starting setup."
+      );
+    }
     const config = loadBranchBaseConfig(worktree.configuration.path);
     this.assertConfigTrusted(workspace.repoPath, config);
     const setup = resolveSetupCommand(config);
