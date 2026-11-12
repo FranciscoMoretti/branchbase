@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { BranchBaseConfigSchema } from "../configuration/branchbase-schema";
+import { EndpointProfilePortsSchema } from "../configuration/endpoint-profiles";
 import { WorktreeConfigSourceSchema } from "../configuration/worktree-config-source";
 import {
   WorktreeProfileSchema,
@@ -89,6 +90,20 @@ export const WorktreeSnapshotSchema = z.strictObject({
     trusted: z.boolean(),
   }),
   disk: DiskUsageSchema.optional(),
+  endpointProfile: z
+    .strictObject({
+      changeBlocked: z.boolean(),
+      choices: z.array(
+        z.strictObject({
+          id: z.string(),
+          name: z.string(),
+          ports: EndpointProfilePortsSchema,
+        })
+      ),
+      error: z.string().nullable(),
+      id: z.string().nullable(),
+    })
+    .optional(),
   health: AppHealthSchema,
   id: z.string(),
   isMain: z.boolean(),

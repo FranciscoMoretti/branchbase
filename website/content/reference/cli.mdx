@@ -67,3 +67,11 @@ branchbase exec --repo /absolute/path/to/project --worktree WORKTREE_ID --group 
 ```
 
 See [manual commands](/resources/commands) for local inputs, reservations, and infrastructure readiness requirements.
+
+## Select worktree endpoints
+
+```sh
+bbase execute select-endpoint-profile --input '{"repoPath":"/path/to/project","worktreeId":"WORKTREE_ID","profileId":"localhost"}'
+```
+
+The profile must exist in the worktree's effective `.branchbase.json`. Use `"profileId":null` to select Project default. Stop affected apps and release command contexts first. The operation reserves all requested ports atomically and starts no processes. Conflicts leave the previous selection intact. `project status --json` exposes the selected endpoint profile, available choices, and assigned app ports.

@@ -32,9 +32,17 @@ import type {
   BranchBaseAppGroup,
   BranchBaseConfig,
 } from "../configuration/branchbase-schema";
-import { renderBranchBaseTemplate } from "../configuration/branchbase-template";
+import {
+  referencedTemplateGroups,
+  renderBranchBaseTemplate,
+} from "../configuration/branchbase-template";
 import { commandWorkingDirectory } from "../configuration/command-directory";
 import {
+  endpointProfilePort,
+  endpointProfilePorts,
+} from "../configuration/endpoint-profiles";
+import {
+  appGroupConfigurationFingerprint,
   repositoryCommandFingerprint,
   repositoryFingerprintIsTrusted,
 } from "../configuration/repository-trust";
@@ -71,6 +79,10 @@ import type {
   RunEndpoint,
   RunKey,
 } from "./assignments";
+import {
+  applyEndpointProfile,
+  endpointProfileChangeBlocked,
+} from "./endpoint-profiles";
 import { AppGroupLifecycleError } from "./lifecycle-error";
 import {
   appIsReady,
@@ -272,7 +284,7 @@ const endpointRoute = (endpoint: RunEndpoint): LocalRoute => {
 const baseInstanceRequest = (target: AppGroupTarget): InstanceRequest => {
   const group = groupForTarget(target);
   return {
-    configFingerprint: repositoryCommandFingerprint(target.config),
+    configFingerprint: appGroupConfigurationFingerprint(target.config),
     groupId: target.groupId,
     mode: group.instances.mode,
     repoLabel: pathModule.basename(target.repoPath),
@@ -851,6 +863,10 @@ export class AppGroupRuntime {
     target: AppGroupTarget,
     instances: Record<string, AppGroupInstance>
   ): Promise<"already-running" | "started"> {
+    endpointProfilePorts(
+      target.config,
+      this.state.worktreeEndpointProfile(target.repoPath, target.worktree.path)
+    );
     let result: "started" | "already-running" = "already-running";
     for (const groupId of dependencyOrder(target.config, target.groupId)) {
       const dependencyTarget = { ...target, groupId };
@@ -1113,7 +1129,7 @@ export class AppGroupRuntime {
     }
     const stopCommandTrusted = repositoryFingerprintIsTrusted(
       repoPath,
-      instance.configFingerprint,
+      instance.run.stopTrustFingerprint ?? instance.configFingerprint,
       this.processes.controlDirectory
     );
     return this.trackWorktreeOperation(
@@ -1175,6 +1191,42 @@ export class AppGroupRuntime {
 
   hasPendingLifecycle(worktreePath: string): boolean {
     return (this.pendingWorktreeOperations.get(worktreePath) ?? 0) > 0;
+  }
+
+  endpointProfileChangeBlocked(target: AppGroupTarget): boolean {
+    return (
+      this.hasPendingLifecycle(target.worktree.path) ||
+      endpointProfileChangeBlocked({
+        processes: this.processes,
+        resources: this.resourceStore,
+        state: this.state,
+        target,
+      })
+    );
+  }
+
+  selectEndpointProfile(
+    target: AppGroupTarget,
+    profileId: string | null
+  ): Promise<void> {
+    endpointProfilePorts(target.config, profileId);
+    return this.trackWorktreeOperation(
+      target.worktree.path,
+      // The shared managed-resources lock also serializes against Start, Stop,
+      // and manual command allocation, including across worktrees.
+      this.serializeLifecycle([], async () => {
+        const instances = this.reconcile(target);
+        await applyEndpointProfile({
+          instances,
+          processes: this.processes,
+          profileId,
+          resources: this.resourceStore,
+          routing: this.routing,
+          state: this.state,
+          target,
+        });
+      })
+    );
   }
 
   private hasConsumers(_repoPath: string, instanceId: string): boolean {
@@ -1732,6 +1784,10 @@ export class AppGroupRuntime {
       instanceId: input.instance.id,
       instanceIdsByGroup,
       stop: stop ?? "process",
+      stopTrustFingerprint:
+        stop && input.config.endpointProfiles
+          ? repositoryCommandFingerprint(input.config)
+          : undefined,
       worktreePath: input.worktreePath,
     };
   }
@@ -1867,6 +1923,13 @@ export class AppGroupRuntime {
 
   manualCommandContext(target: AppGroupTarget) {
     return this.serializeLifecycle([], async () => {
+      endpointProfilePorts(
+        target.config,
+        this.state.worktreeEndpointProfile(
+          target.repoPath,
+          target.worktree.path
+        )
+      );
       const instances = this.reconcile(target);
       const running = this.state.run(
         runKey(target.repoPath, instances[target.groupId].id)
@@ -1913,18 +1976,29 @@ export class AppGroupRuntime {
         target.groupId,
         bindings
       );
-      const inputs = running?.inputs ?? groupForTarget(target).inputs ?? {};
-      const dependencies = dependencyOrder(target.config, target.groupId)
-        .filter((id) => id !== target.groupId)
-        .map((id) => bindings[id]?.instanceId)
-        .filter((id): id is string => Boolean(id));
-      const leaseId = this.resourceStore.hold(dependencies);
+      const group = groupForTarget(target);
+      const inputs = running?.inputs ?? group.inputs ?? {};
+      const referenced = referencedTemplateGroups(
+        target.config.appGroups,
+        target.groupId,
+        [...Object.values(group.env ?? {}), ...group.start.argv]
+      );
+      const leaseId = this.resourceStore.hold(
+        [
+          ...new Set([
+            ...dependencyOrder(target.config, target.groupId),
+            ...referenced,
+          ]),
+        ].flatMap((id) => {
+          const instanceId = bindings[id]?.instanceId;
+          return instanceId ? [instanceId] : [];
+        })
+      );
       return {
         cwd: commandWorkingDirectory(target.worktree.path, command.cwd),
         env: Object.fromEntries(
           Object.entries(command.env).filter(
-            ([key]) =>
-              !inputs[key] || groupForTarget(target).env?.[key]?.includes("{")
+            ([key]) => !inputs[key] || group.env?.[key]?.includes("{")
           )
         ),
         inputs,
@@ -2204,7 +2278,7 @@ export class AppGroupRuntime {
     instanceIdsByGroup?: Record<string, string>,
     externalGroups: ResolvedBranchBaseAppGroups = {}
   ): ResolvedBranchBaseAppGroups {
-    const configFingerprint = repositoryCommandFingerprint(config);
+    const configFingerprint = appGroupConfigurationFingerprint(config);
     const resolved: ResolvedBranchBaseAppGroups = Object.fromEntries(
       Object.entries(config.appGroups).map(([groupId, group]) => [
         groupId,
@@ -2273,6 +2347,10 @@ export class AppGroupRuntime {
     target: AppGroupTarget,
     instances: Readonly<Record<string, AppGroupInstance>>
   ): Promise<void> {
+    const pins = endpointProfilePorts(
+      target.config,
+      this.state.worktreeEndpointProfile(target.repoPath, target.worktree.path)
+    );
     const leased = this.state.leasedPorts();
     const reservations: BackingPortLease[] = [];
     try {
@@ -2297,19 +2375,30 @@ export class AppGroupRuntime {
             instance,
             repoPath: target.repoPath,
           });
+          const pinnedPort = endpointProfilePort(pins, groupId, appId);
+          const requestedPort = pinnedPort ?? app.port;
           if (assignment.port !== null) {
-            if (app.port && app.port !== assignment.port) {
+            if (
+              (requestedPort && requestedPort !== assignment.port) ||
+              (assignment.requestedPort !== undefined &&
+                assignment.requestedPort !== pinnedPort)
+            ) {
               throw new Error(
-                `Instance endpoint ${appId} retains port ${assignment.port}; explicit reconciliation is required before changing it to ${app.port}`
+                `Instance endpoint ${appId} retains port ${assignment.port}; select an endpoint profile to reconcile it before changing it to ${requestedPort ?? "automatic"}`
               );
             }
             continue;
           }
           // oxlint-disable-next-line no-await-in-loop -- Port reservations update shared leased state sequentially.
-          const reservation = await reserveBackingPort(leased, app.port);
+          const reservation = await reserveBackingPort(leased, requestedPort);
           reservations.push(reservation);
           leased.add(reservation.port);
-          this.state.assignEndpointPort(key, appId, reservation.port);
+          this.state.assignEndpointPort(
+            key,
+            appId,
+            reservation.port,
+            pinnedPort
+          );
         }
       }
     } finally {

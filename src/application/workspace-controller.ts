@@ -38,6 +38,7 @@ import {
 import type { WorktreeEnvConfig } from "../configuration/branchbase-config";
 import type { BranchBaseConfig } from "../configuration/branchbase-schema";
 import { commandWorkingDirectory } from "../configuration/command-directory";
+import { findEndpointProfile } from "../configuration/endpoint-profiles";
 import { initializeRepository as initializeRepositoryConfig } from "../configuration/initializer";
 import { MissingWorktreeConfigError } from "../configuration/missing-config-error";
 import {
@@ -232,6 +233,18 @@ const COMMAND_HANDLERS: Record<BranchBaseCommandName, CommandHandler> = {
     };
   },
   "select-app-group-instance": selectAppGroupInstance,
+  "select-endpoint-profile": async (controller, input) => {
+    await controller.selectEndpointProfile(
+      String(input.repoPath),
+      String(input.worktreeId),
+      input.profileId === null ? null : String(input.profileId)
+    );
+    return {
+      command: "select-endpoint-profile",
+      message: "Endpoint profile applied",
+      ok: true as const,
+    };
+  },
   "select-resource-profile": async (controller, input) => {
     await controller.selectResourceProfile(
       String(input.repoPath),
@@ -646,6 +659,36 @@ export class WorkspaceController {
     );
   }
 
+  async selectEndpointProfile(
+    repoPath: string,
+    worktreeId: string,
+    profileId: string | null
+  ): Promise<void> {
+    const { workspace, worktree } = this.worktree(repoPath, worktreeId);
+    if (
+      worktree.setupState === "running" ||
+      this.appGroups.hasPendingLifecycle(worktree.path)
+    ) {
+      throw new Error(
+        "Wait for setup and lifecycle operations before changing endpoint profiles."
+      );
+    }
+    const config = loadBranchBaseConfig(worktree.configuration.path);
+    await this.appGroups.selectEndpointProfile(
+      {
+        config,
+        groupId: Object.keys(config.appGroups)[0],
+        repoPath: workspace.repoPath,
+        worktree: {
+          id: worktree.id,
+          path: worktree.path,
+          routeLabel: worktree.branch,
+        },
+      },
+      profileId
+    );
+  }
+
   async selectResourceProfile(
     repoPath: string,
     worktreeId: string,
@@ -682,7 +725,11 @@ export class WorkspaceController {
     workspace.managedResources = this.appGroups.managedCatalog();
     for (const worktree of workspace.worktrees) {
       const config = loadBranchBaseConfig(worktree.configuration.path);
-      worktree.profile = this.appGroups.profileStatus({
+      const selected = this.state.worktreeEndpointProfile(
+        workspace.repoPath,
+        worktree.path
+      );
+      const target = {
         config,
         groupId: worktree.primaryAppGroup,
         repoPath: workspace.repoPath,
@@ -691,7 +738,23 @@ export class WorkspaceController {
           path: worktree.path,
           routeLabel: worktree.branch,
         },
-      });
+      };
+      const choices = Object.entries(config.endpointProfiles ?? {}).map(
+        ([id, profile]) => ({ id, ...profile })
+      );
+      worktree.endpointProfile = {
+        changeBlocked:
+          worktree.setupState === "running" ||
+          ((choices.length > 0 || selected !== null) &&
+            this.appGroups.endpointProfileChangeBlocked(target)),
+        choices,
+        error:
+          selected !== null && !findEndpointProfile(config, selected)
+            ? `Endpoint profile "${selected}" is unavailable. Select another profile or the Project default.`
+            : null,
+        id: selected,
+      };
+      worktree.profile = this.appGroups.profileStatus(target);
     }
   }
 
@@ -1141,6 +1204,11 @@ export class WorkspaceController {
 
   startSetup(repoPath: string, worktreeIdValue: string): void {
     const { workspace, worktree } = this.worktree(repoPath, worktreeIdValue);
+    if (this.appGroups.hasPendingLifecycle(worktree.path)) {
+      throw new Error(
+        "Wait for the current lifecycle operation before starting setup."
+      );
+    }
     const config = loadBranchBaseConfig(worktree.configuration.path);
     this.assertConfigTrusted(workspace.repoPath, config);
     const setup = resolveSetupCommand(config);

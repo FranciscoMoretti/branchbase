@@ -210,6 +210,43 @@
         "additionalProperties": false
       }
     },
+    "endpointProfiles": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ports": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "minLength": 1
+            },
+            "additionalProperties": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "minLength": 1
+              },
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": 65535
+              }
+            }
+          }
+        },
+        "required": ["name", "ports"],
+        "additionalProperties": false
+      }
+    },
     "managedResources": {
       "type": "object",
       "propertyNames": {

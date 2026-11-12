@@ -150,6 +150,39 @@ const fixture = async () => {
   };
 };
 
+test("selecting endpoint profiles leaves a running managed resource alone", async () => {
+  const f = await fixture();
+  const reservation = await reserveBackingPort(new Set(f.ports));
+  const { port } = reservation;
+  await reservation.release();
+  try {
+    const target = f.target("consumer", "0");
+    const config = BranchBaseConfigSchema.parse({
+      ...target.config,
+      appGroups: {
+        ...target.config.appGroups,
+        worker: {
+          ...target.config.appGroups.worker,
+          apps: { api: { protocol: "tcp" } },
+        },
+      },
+      endpointProfiles: {
+        local: { name: "Local", ports: { worker: { api: port } } },
+      },
+    });
+    f.runtime.managedResources.approve("database", f.registration.revision);
+    const owner = f.runtime.managedResources.target("database", "0");
+    await f.runtime.start(owner);
+    const before = f.runtime.reconcile(owner).resource;
+    await f.runtime.selectEndpointProfile({ ...target, config }, "local");
+    const { db, worker } = f.runtime.reconcile({ ...target, config });
+    expect(db).toEqual(before);
+    expect(Object.values(worker.endpoints)[0]?.port).toBe(port);
+  } finally {
+    await f.close();
+  }
+}, 20_000);
+
 test("four applications across projects share two independently identified managed resources", async () => {
   const f = await fixture();
   try {

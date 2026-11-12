@@ -38,6 +38,7 @@ import {
 import { runtimeSummary } from "./runtime-summary";
 import { SettingsPage } from "./settings-page";
 import { useWorktreeControls } from "./use-worktree-controls";
+import { WorktreeEndpointProfile } from "./worktree-endpoint-profile";
 import { WorktreeProfile } from "./worktree-profile";
 
 const isMissingEnvironment = (
@@ -242,6 +243,11 @@ export const WorkspacePage = ({
             worktree={selected}
             groupId={selectedGroup.id}
             controls={controls}
+          />
+          <WorktreeEndpointProfile
+            key={JSON.stringify([selected.id, selected.endpointProfile?.id])}
+            repoPath={data.repoPath}
+            worktree={selected}
           />
           <WorktreeProfile
             key={selected.id}

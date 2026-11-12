@@ -12,6 +12,7 @@ export const worktreeNeedsAttention = (worktree: WorktreeSnapshot): boolean =>
   Boolean(
     worktree.configuration.error ||
     !worktree.configuration.trusted ||
+    worktree.endpointProfile?.error ||
     worktree.setupState === "failed" ||
     runtimeSummary(worktree).value === "partial"
   );
@@ -51,6 +52,9 @@ const attentionLabel = (worktree: WorktreeSnapshot) => {
   }
   if (!worktree.configuration.trusted) {
     return "Review commands";
+  }
+  if (worktree.endpointProfile?.error) {
+    return "Endpoint profile unavailable";
   }
   return runtimeSummary(worktree).label;
 };

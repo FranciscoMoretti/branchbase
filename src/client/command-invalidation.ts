@@ -34,6 +34,7 @@ const effects = {
   "save-project": "catalog",
   "scan-development-folders": "folders",
   "select-app-group-instance": "runtime",
+  "select-endpoint-profile": "runtime",
   "select-resource-profile": "runtime",
   "select-worktree-config-source": "runtime",
   "setup-all-apps": "runtime",
