@@ -38,6 +38,7 @@ import {
 import type { WorktreeEnvConfig } from "../configuration/branchbase-config";
 import type { BranchBaseConfig } from "../configuration/branchbase-schema";
 import { commandWorkingDirectory } from "../configuration/command-directory";
+import { findEndpointProfile } from "../configuration/endpoint-profiles";
 import { initializeRepository as initializeRepositoryConfig } from "../configuration/initializer";
 import { MissingWorktreeConfigError } from "../configuration/missing-config-error";
 import {
@@ -672,12 +673,18 @@ export class WorkspaceController {
         "Wait for setup and lifecycle operations before changing endpoint profiles."
       );
     }
+    const config = loadBranchBaseConfig(worktree.configuration.path);
     await this.appGroups.selectEndpointProfile(
-      this.appGroupTarget(
-        workspace.repoPath,
-        worktree.id,
-        worktree.primaryAppGroup
-      ),
+      {
+        config,
+        groupId: Object.keys(config.appGroups)[0],
+        repoPath: workspace.repoPath,
+        worktree: {
+          id: worktree.id,
+          path: worktree.path,
+          routeLabel: worktree.branch,
+        },
+      },
       profileId
     );
   }
@@ -742,7 +749,7 @@ export class WorkspaceController {
             this.appGroups.endpointProfileChangeBlocked(target)),
         choices,
         error:
-          selected !== null && !config.endpointProfiles?.[selected]
+          selected !== null && !findEndpointProfile(config, selected)
             ? `Endpoint profile "${selected}" is unavailable. Select another profile or the Project default.`
             : null,
         id: selected,

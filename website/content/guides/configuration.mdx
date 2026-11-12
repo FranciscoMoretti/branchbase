@@ -79,7 +79,7 @@ An optional `endpointProfiles` section defines exact ports without copying the p
 }
 ```
 
-Use your existing app-group and app IDs. Choose a profile in the worktree's **Endpoint profile** panel and click **Apply endpoints**. Other worktrees keep their Project default assignments. Unspecified apps use their configured literal port or stable automatic allocation. Startup commands must consume `{apps.web.port}` through environment or argv bindings.
+Use your existing app-group and app IDs. Choose a profile in the worktree's **Endpoint profile** panel and click **Apply endpoints**. Other worktrees keep their selections and assignments. Unspecified apps use their configured literal port or stable automatic allocation. Startup commands must consume `{apps.web.port}` through environment or argv bindings.
 
 Stop affected apps and release command contexts before applying. BranchBase checks every requested port before changing the selection, never silently substitutes a port, and never takes another worktree's reservation. Stop, Restart, and daemon restarts retain assignments. Choosing **Project default** removes the profile pins. A removed selected profile must be replaced or cleared before starting again.
 

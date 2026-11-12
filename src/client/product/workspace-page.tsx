@@ -245,7 +245,7 @@ export const WorkspacePage = ({
             controls={controls}
           />
           <WorktreeEndpointProfile
-            key={`endpoints:${selected.id}`}
+            key={JSON.stringify([selected.id, selected.endpointProfile?.id])}
             repoPath={data.repoPath}
             worktree={selected}
           />

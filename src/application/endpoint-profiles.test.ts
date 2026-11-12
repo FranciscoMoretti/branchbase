@@ -293,7 +293,9 @@ test("endpoint definitions reject unsupported targets, duplicate ports and liter
   try {
     for (const ports of [
       { missing: { web: 3000 } },
+      { constructor: { web: 3000 } },
       { dev: { unknown: 3000 } },
+      { dev: { toString: 3000 } },
       { dev: { api: 3000, web: 3000 } },
     ]) {
       expect(
@@ -360,6 +362,36 @@ test("controller commands expose endpoint choices and persist selection for one 
       initial.worktrees.find((worktree) => worktree.isMain)
     );
     expect(main.endpointProfile?.choices[0].id).toBe("local");
+    const stale = f.state.instance({
+      configFingerprint: "previous-configuration",
+      groupId: "dev",
+      mode: "per-worktree",
+      repoLabel: "fixture",
+      repoPath: f.root,
+      worktreeLabel: main.branch,
+      worktreePath: main.path,
+    });
+    const staleKey = { instanceId: stale.id, repoPath: f.root };
+    f.state.saveRun(staleKey, {
+      apps: {},
+      createdAt: new Date().toISOString(),
+      groupId: "dev",
+      instanceId: stale.id,
+      instanceIdsByGroup: { dev: stale.id },
+      worktreePath: main.path,
+    });
+    expect(
+      controller.inspect(f.root).worktrees.find((worktree) => worktree.isMain)
+        ?.primaryAppGroup
+    ).toBe(`cleanup:${stale.id}`);
+    await expect(
+      controller.execute("select-endpoint-profile", {
+        profileId: "local",
+        repoPath: f.root,
+        worktreeId: main.id,
+      })
+    ).rejects.toThrow("Stop the affected apps");
+    f.state.removeRun(staleKey);
     await controller.execute("select-endpoint-profile", {
       profileId: "local",
       repoPath: f.root,
@@ -380,7 +412,7 @@ test("controller commands expose endpoint choices and persist selection for one 
     ).toBe(true);
     await expect(
       controller.execute("select-endpoint-profile", {
-        profileId: "missing",
+        profileId: "constructor",
         repoPath: f.root,
         worktreeId: main.id,
       })

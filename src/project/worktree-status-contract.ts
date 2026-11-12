@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { BranchBaseConfigSchema } from "../configuration/branchbase-schema";
+import { EndpointProfilePortsSchema } from "../configuration/endpoint-profiles";
 import { WorktreeConfigSourceSchema } from "../configuration/worktree-config-source";
 import {
   WorktreeProfileSchema,
@@ -96,7 +97,7 @@ export const WorktreeSnapshotSchema = z.strictObject({
         z.strictObject({
           id: z.string(),
           name: z.string(),
-          ports: z.record(z.string(), z.record(z.string(), z.number())),
+          ports: EndpointProfilePortsSchema,
         })
       ),
       error: z.string().nullable(),

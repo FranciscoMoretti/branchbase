@@ -3,6 +3,7 @@ import { appGroupInstanceProcessId } from "../adapters/host/process-supervisor";
 import type { ProcessSupervisor } from "../adapters/host/process-supervisor";
 import type { LocalRoutingEngine } from "../adapters/routing/portless";
 import {
+  endpointProfilePort,
   endpointProfilePorts,
   supportsEndpointProfile,
 } from "../configuration/endpoint-profiles";
@@ -36,7 +37,10 @@ const inspectProfileAssignments = ({
     repoPath === target.repoPath &&
     instance.mode === "per-worktree" &&
     instance.worktreePath === target.worktree.path &&
-    groupIds.has(instance.groupId)
+    (groupIds.has(instance.groupId) ||
+      Object.values(instance.endpoints).some(
+        (endpoint) => endpoint.requestedPort !== undefined
+      ))
       ? [instance]
       : []
   );
@@ -132,7 +136,7 @@ export const applyEndpointProfile = async (
         if (!endpoint) {
           throw new Error(`Missing endpoint ${groupId}.${appId}`);
         }
-        const requestedPort = pins[groupId]?.[appId];
+        const requestedPort = endpointProfilePort(pins, groupId, appId);
         const fixedPort = requestedPort ?? app.port;
         return {
           appId,

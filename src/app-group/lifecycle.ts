@@ -37,7 +37,10 @@ import {
   renderBranchBaseTemplate,
 } from "../configuration/branchbase-template";
 import { commandWorkingDirectory } from "../configuration/command-directory";
-import { endpointProfilePorts } from "../configuration/endpoint-profiles";
+import {
+  endpointProfilePort,
+  endpointProfilePorts,
+} from "../configuration/endpoint-profiles";
 import {
   appGroupConfigurationFingerprint,
   repositoryCommandFingerprint,
@@ -2372,7 +2375,7 @@ export class AppGroupRuntime {
             instance,
             repoPath: target.repoPath,
           });
-          const pinnedPort = pins[groupId]?.[appId];
+          const pinnedPort = endpointProfilePort(pins, groupId, appId);
           const requestedPort = pinnedPort ?? app.port;
           if (assignment.port !== null) {
             if (

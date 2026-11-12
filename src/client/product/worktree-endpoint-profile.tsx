@@ -75,10 +75,11 @@ export const WorktreeEndpointProfile = ({
             blocked || change.isPending || (selected !== null && !choice)
           }
           onClick={() =>
-            change.mutate(
-              { profileId: selected, repoPath, worktreeId: worktree.id },
-              { onSuccess: () => setSelection(undefined) }
-            )
+            change.mutate({
+              profileId: selected,
+              repoPath,
+              worktreeId: worktree.id,
+            })
           }
         >
           {change.isPending ? "Applying…" : "Apply endpoints"}

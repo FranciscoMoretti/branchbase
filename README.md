@@ -263,7 +263,7 @@ Keep one shared configuration while giving a chosen worktree exact local ports. 
 }
 ```
 
-In the worktree view, select **Endpoint profile → Localhost → Apply endpoints**. Other worktrees use the Project default: literal configured ports, or stable automatic assignments when no literal port is declared. Existing environment and argv bindings such as `{apps.web.port}` receive the assigned value.
+In the worktree view, select **Endpoint profile → Localhost → Apply endpoints**. Other worktrees keep their selections and assignments. Worktrees on Project default use literal configured ports, or stable automatic assignments when no literal port is declared. Existing environment and argv bindings such as `{apps.web.port}` receive the assigned value.
 
 The same operation is available without the dashboard:
 

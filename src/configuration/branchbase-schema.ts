@@ -4,6 +4,7 @@ import { BranchBaseCommandSchema } from "./branchbase-command";
 import { branchbaseTemplateError } from "./branchbase-template";
 import {
   EndpointProfilesSchema,
+  endpointProfilePort,
   supportsEndpointProfile,
 } from "./endpoint-profiles";
 import {
@@ -181,7 +182,10 @@ const validateEndpointProfiles = (
   )) {
     for (const [groupId, apps] of Object.entries(profile.ports)) {
       const group = config.appGroups[groupId];
-      if (!group || !supportsEndpointProfile(group)) {
+      if (
+        !Object.hasOwn(config.appGroups, groupId) ||
+        !supportsEndpointProfile(group)
+      ) {
         context.addIssue({
           code: "custom",
           message:
@@ -192,7 +196,10 @@ const validateEndpointProfiles = (
       }
       for (const [appId, port] of Object.entries(apps)) {
         const app = group.apps[appId];
-        if (!app || (app.port !== undefined && app.port !== port)) {
+        if (
+          !Object.hasOwn(group.apps, appId) ||
+          (app.port !== undefined && app.port !== port)
+        ) {
           context.addIssue({
             code: "custom",
             message:
@@ -205,7 +212,8 @@ const validateEndpointProfiles = (
     const resolved = new Set<number>();
     for (const [groupId, group] of Object.entries(config.appGroups)) {
       for (const [appId, app] of Object.entries(group.apps)) {
-        const port = profile.ports[groupId]?.[appId] ?? app.port;
+        const port =
+          endpointProfilePort(profile.ports, groupId, appId) ?? app.port;
         if (port !== undefined && resolved.has(port)) {
           context.addIssue({
             code: "custom",
