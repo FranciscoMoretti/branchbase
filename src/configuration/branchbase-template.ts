@@ -192,6 +192,45 @@ export const renderBranchBaseTemplate = (
   return rendered.value;
 };
 
+/** Groups whose endpoint bindings a command receives, including through outputs. */
+export const referencedTemplateGroups = (
+  appGroups: Record<string, BranchBaseAppGroup>,
+  currentGroup: string,
+  templates: readonly string[]
+): Set<string> => {
+  const groups = new Set([currentGroup]);
+  const visitedOutputs = new Set<string>();
+  const visit = (template: string, owner: string): void => {
+    for (const [groupId, group] of Object.entries(appGroups)) {
+      const values = new Map<string, TemplateValue>();
+      for (const [appId, app] of Object.entries(group.apps)) {
+        addAppTemplateValues(values, groupId, owner, appId, app, false);
+      }
+      if ([...values.keys()].some((token) => template.includes(token))) {
+        groups.add(groupId);
+      }
+      for (const [name, output] of Object.entries(group.outputs ?? {})) {
+        const token = `{appGroups.${groupId}.outputs.${name}}`;
+        if (
+          !template.includes(token) &&
+          !(groupId === owner && template.includes(`{outputs.${name}}`))
+        ) {
+          continue;
+        }
+        groups.add(groupId);
+        if (!visitedOutputs.has(token)) {
+          visitedOutputs.add(token);
+          visit(output, groupId);
+        }
+      }
+    }
+  };
+  for (const template of templates) {
+    visit(template, currentGroup);
+  }
+  return groups;
+};
+
 export const renameBranchBaseAppTemplateReferences = (
   template: string,
   groupId: string,

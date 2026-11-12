@@ -18,7 +18,7 @@ const EndpointAssignmentSchema = z.strictObject({
   hostname: NonEmptyStringSchema,
   id: NonEmptyStringSchema,
   port: PortSchema.nullable(),
-  requestedPort: PortSchema.nullable().default(null),
+  requestedPort: PortSchema.optional(),
   routeLabel: NonEmptyStringSchema,
 });
 
@@ -77,6 +77,7 @@ const AppGroupRunSchema = z.strictObject({
     .record(z.string(), z.enum(["keep-running", "stop-when-unused"]))
     .optional(),
   stop: z.union([z.literal("process"), ResolvedRunCommandSchema]).optional(),
+  stopTrustFingerprint: z.string().optional(),
   worktreePath: NonEmptyStringSchema,
 });
 
@@ -95,7 +96,7 @@ const AppGroupInstanceSchema = z.strictObject({
 
 const WorktreeRecordSchema = z.strictObject({
   configSource: WorktreeConfigSourceSchema.default("project-default"),
-  endpointProfile: z.string().min(1).nullable().default(null),
+  endpointProfile: z.string().min(1).optional(),
   id: NonEmptyStringSchema,
   instanceSelections: z.record(z.string(), NonEmptyStringSchema),
   path: NonEmptyStringSchema,
@@ -257,7 +258,6 @@ const migrateLegacyState = (
     )) {
       migrated.worktrees[worktreePath] = {
         configSource: "project-default",
-        endpointProfile: null,
         id: worktree.id,
         instanceSelections: {},
         path: worktree.path,
@@ -278,7 +278,6 @@ const migrateLegacyState = (
               {
                 ...endpoint,
                 port: legacyRun?.apps[endpoint.appId]?.port ?? null,
-                requestedPort: null,
               } satisfies EndpointAssignment,
             ])
         );
@@ -343,7 +342,6 @@ const getWorktreeRecord = (
   const id = randomUUID();
   const record: WorktreeRecord = {
     configSource: "project-default",
-    endpointProfile: null,
     id,
     instanceSelections: {},
     path: request.worktreePath,
@@ -487,7 +485,7 @@ export class FileBranchBaseStateStore {
       instanceId: string;
       appId: string;
       port: number | null;
-      requestedPort: number | null;
+      requestedPort: number | undefined;
     }[]
   ): void {
     const state = this.read();
@@ -511,7 +509,7 @@ export class FileBranchBaseStateStore {
       endpoint.port = update.port;
       endpoint.requestedPort = update.requestedPort;
     }
-    worktree.endpointProfile = profileId;
+    worktree.endpointProfile = profileId ?? undefined;
     this.write(state);
   }
 
@@ -771,7 +769,6 @@ export class FileBranchBaseStateStore {
       hostname: `${label}.${instance.routeLabel}.${repository.routeLabel}.localhost`,
       id,
       port: null,
-      requestedPort: null,
       routeLabel: label,
     };
     instance.endpoints[key] = assignment;
@@ -783,7 +780,7 @@ export class FileBranchBaseStateStore {
     key: RunKey,
     appId: string,
     port: number,
-    requestedPort: number | null = null
+    requestedPort?: number
   ): EndpointAssignment {
     const state = this.read();
     const instance =

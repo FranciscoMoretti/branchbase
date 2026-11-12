@@ -722,17 +722,7 @@ export class WorkspaceController {
         workspace.repoPath,
         worktree.path
       );
-      worktree.endpointProfile = {
-        choices: Object.entries(config.endpointProfiles ?? {}).map(
-          ([id, profile]) => ({ id, ...profile })
-        ),
-        error:
-          selected !== null && !config.endpointProfiles?.[selected]
-            ? `Endpoint profile "${selected}" is unavailable. Select another profile or the Project default.`
-            : null,
-        id: selected,
-      };
-      worktree.profile = this.appGroups.profileStatus({
+      const target = {
         config,
         groupId: worktree.primaryAppGroup,
         repoPath: workspace.repoPath,
@@ -741,7 +731,23 @@ export class WorkspaceController {
           path: worktree.path,
           routeLabel: worktree.branch,
         },
-      });
+      };
+      const choices = Object.entries(config.endpointProfiles ?? {}).map(
+        ([id, profile]) => ({ id, ...profile })
+      );
+      worktree.endpointProfile = {
+        changeBlocked:
+          worktree.setupState === "running" ||
+          ((choices.length > 0 || selected !== null) &&
+            this.appGroups.endpointProfileChangeBlocked(target)),
+        choices,
+        error:
+          selected !== null && !config.endpointProfiles?.[selected]
+            ? `Endpoint profile "${selected}" is unavailable. Select another profile or the Project default.`
+            : null,
+        id: selected,
+      };
+      worktree.profile = this.appGroups.profileStatus(target);
     }
   }
 

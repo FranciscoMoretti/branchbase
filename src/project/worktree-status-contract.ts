@@ -91,6 +91,7 @@ export const WorktreeSnapshotSchema = z.strictObject({
   disk: DiskUsageSchema.optional(),
   endpointProfile: z
     .strictObject({
+      changeBlocked: z.boolean(),
       choices: z.array(
         z.strictObject({
           id: z.string(),

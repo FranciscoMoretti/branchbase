@@ -83,6 +83,8 @@ Use your existing app-group and app IDs. Choose a profile in the worktree's **En
 
 Stop affected apps and release command contexts before applying. BranchBase checks every requested port before changing the selection, never silently substitutes a port, and never takes another worktree's reservation. Stop, Restart, and daemon restarts retain assignments. Choosing **Project default** removes the profile pins. A removed selected profile must be replaced or cleared before starting again.
 
-Only per-worktree application groups support these profiles. Shared instances, infrastructure, and resource profiles keep their existing behavior. Literal `port` values cannot be overridden with contradictory profile values. Profile definitions are part of the configuration reviewed for command trust.
+Only per-worktree application groups support these profiles. Shared instances, infrastructure, and resource profiles keep their existing behavior. The published JSON schema checks the shape of the configuration; BranchBase also checks that app IDs exist, groups are eligible, and exact ports are unique and agree with literal `port` values. Profile definitions are part of the configuration reviewed for command trust.
 
 Direct URLs use `127.0.0.1`; `localhost` is a different browser origin. Endpoint profiles do not configure authentication callbacks.
+
+Before downgrading to a BranchBase version without endpoint profiles, stop the app groups, apply **Project default** to each worktree with a selected profile, then remove `endpointProfiles` from the configuration. Older versions cannot read saved profiles, port pins, or the command approval captured by an active run using this configuration.

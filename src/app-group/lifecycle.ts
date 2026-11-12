@@ -32,10 +32,14 @@ import type {
   BranchBaseAppGroup,
   BranchBaseConfig,
 } from "../configuration/branchbase-schema";
-import { renderBranchBaseTemplate } from "../configuration/branchbase-template";
+import {
+  referencedTemplateGroups,
+  renderBranchBaseTemplate,
+} from "../configuration/branchbase-template";
 import { commandWorkingDirectory } from "../configuration/command-directory";
 import { endpointProfilePorts } from "../configuration/endpoint-profiles";
 import {
+  appGroupConfigurationFingerprint,
   repositoryCommandFingerprint,
   repositoryFingerprintIsTrusted,
 } from "../configuration/repository-trust";
@@ -72,7 +76,10 @@ import type {
   RunEndpoint,
   RunKey,
 } from "./assignments";
-import { applyEndpointProfile } from "./endpoint-profiles";
+import {
+  applyEndpointProfile,
+  endpointProfileChangeBlocked,
+} from "./endpoint-profiles";
 import { AppGroupLifecycleError } from "./lifecycle-error";
 import {
   appIsReady,
@@ -274,7 +281,7 @@ const endpointRoute = (endpoint: RunEndpoint): LocalRoute => {
 const baseInstanceRequest = (target: AppGroupTarget): InstanceRequest => {
   const group = groupForTarget(target);
   return {
-    configFingerprint: repositoryCommandFingerprint(target.config),
+    configFingerprint: appGroupConfigurationFingerprint(target.config),
     groupId: target.groupId,
     mode: group.instances.mode,
     repoLabel: pathModule.basename(target.repoPath),
@@ -1119,7 +1126,7 @@ export class AppGroupRuntime {
     }
     const stopCommandTrusted = repositoryFingerprintIsTrusted(
       repoPath,
-      instance.configFingerprint,
+      instance.run.stopTrustFingerprint ?? instance.configFingerprint,
       this.processes.controlDirectory
     );
     return this.trackWorktreeOperation(
@@ -1183,6 +1190,18 @@ export class AppGroupRuntime {
     return (this.pendingWorktreeOperations.get(worktreePath) ?? 0) > 0;
   }
 
+  endpointProfileChangeBlocked(target: AppGroupTarget): boolean {
+    return (
+      this.hasPendingLifecycle(target.worktree.path) ||
+      endpointProfileChangeBlocked({
+        processes: this.processes,
+        resources: this.resourceStore,
+        state: this.state,
+        target,
+      })
+    );
+  }
+
   selectEndpointProfile(
     target: AppGroupTarget,
     profileId: string | null
@@ -1190,26 +1209,10 @@ export class AppGroupRuntime {
     endpointProfilePorts(target.config, profileId);
     return this.trackWorktreeOperation(
       target.worktree.path,
+      // The shared managed-resources lock also serializes against Start, Stop,
+      // and manual command allocation, including across worktrees.
       this.serializeLifecycle([], async () => {
         const instances = this.reconcile(target);
-        // Materialize identities only; ports and selection are committed atomically below.
-        for (const [groupId, group] of Object.entries(
-          target.config.appGroups
-        )) {
-          const instance = instances[groupId];
-          if (!instance) {
-            continue;
-          }
-          for (const [appId, app] of Object.entries(group.apps)) {
-            this.endpointAssignment({
-              app,
-              appId,
-              groupId,
-              instance,
-              repoPath: target.repoPath,
-            });
-          }
-        }
         await applyEndpointProfile({
           instances,
           processes: this.processes,
@@ -1778,6 +1781,10 @@ export class AppGroupRuntime {
       instanceId: input.instance.id,
       instanceIdsByGroup,
       stop: stop ?? "process",
+      stopTrustFingerprint:
+        stop && input.config.endpointProfiles
+          ? repositoryCommandFingerprint(input.config)
+          : undefined,
       worktreePath: input.worktreePath,
     };
   }
@@ -1966,25 +1973,29 @@ export class AppGroupRuntime {
         target.groupId,
         bindings
       );
-      const inputs = running?.inputs ?? groupForTarget(target).inputs ?? {};
-      const dependencies = dependencyOrder(target.config, target.groupId)
-        .filter((id) => id !== target.groupId)
-        .map((id) => bindings[id]?.instanceId)
-        .filter((id): id is string => Boolean(id));
-      const leaseId = this.resourceStore.hold([
-        ...new Set([
-          ...dependencies,
-          ...Object.values(bindings).flatMap((binding) =>
-            binding.instanceId ? [binding.instanceId] : []
-          ),
-        ]),
-      ]);
+      const group = groupForTarget(target);
+      const inputs = running?.inputs ?? group.inputs ?? {};
+      const referenced = referencedTemplateGroups(
+        target.config.appGroups,
+        target.groupId,
+        [...Object.values(group.env ?? {}), ...group.start.argv]
+      );
+      const leaseId = this.resourceStore.hold(
+        [
+          ...new Set([
+            ...dependencyOrder(target.config, target.groupId),
+            ...referenced,
+          ]),
+        ].flatMap((id) => {
+          const instanceId = bindings[id]?.instanceId;
+          return instanceId ? [instanceId] : [];
+        })
+      );
       return {
         cwd: commandWorkingDirectory(target.worktree.path, command.cwd),
         env: Object.fromEntries(
           Object.entries(command.env).filter(
-            ([key]) =>
-              !inputs[key] || groupForTarget(target).env?.[key]?.includes("{")
+            ([key]) => !inputs[key] || group.env?.[key]?.includes("{")
           )
         ),
         inputs,
@@ -2264,7 +2275,7 @@ export class AppGroupRuntime {
     instanceIdsByGroup?: Record<string, string>,
     externalGroups: ResolvedBranchBaseAppGroups = {}
   ): ResolvedBranchBaseAppGroups {
-    const configFingerprint = repositoryCommandFingerprint(config);
+    const configFingerprint = appGroupConfigurationFingerprint(config);
     const resolved: ResolvedBranchBaseAppGroups = Object.fromEntries(
       Object.entries(config.appGroups).map(([groupId, group]) => [
         groupId,
@@ -2361,12 +2372,13 @@ export class AppGroupRuntime {
             instance,
             repoPath: target.repoPath,
           });
-          const requestedPort = pins[groupId]?.[appId] ?? app.port;
+          const pinnedPort = pins[groupId]?.[appId];
+          const requestedPort = pinnedPort ?? app.port;
           if (assignment.port !== null) {
             if (
               (requestedPort && requestedPort !== assignment.port) ||
-              (assignment.requestedPort !== null &&
-                assignment.requestedPort !== (requestedPort ?? null))
+              (assignment.requestedPort !== undefined &&
+                assignment.requestedPort !== pinnedPort)
             ) {
               throw new Error(
                 `Instance endpoint ${appId} retains port ${assignment.port}; select an endpoint profile to reconcile it before changing it to ${requestedPort ?? "automatic"}`
@@ -2382,7 +2394,7 @@ export class AppGroupRuntime {
             key,
             appId,
             reservation.port,
-            requestedPort ?? null
+            pinnedPort
           );
         }
       }

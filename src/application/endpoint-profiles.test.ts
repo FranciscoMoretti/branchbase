@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -163,17 +164,22 @@ test("endpoint profiles isolate worktrees and keep startup, readiness, URLs and 
       f.routing,
       new FileBranchBaseStateStore(f.state.path)
     );
-    await restored.start(main);
+    const updatedConfig = structuredClone(main.config);
+    const profiles = required(updatedConfig.endpointProfiles);
+    profiles.another = { name: "Another profile", ports: {} };
+    const updated = { ...main, config: updatedConfig };
+    await restored.start(updated);
+    expect(restored.reconcile(updated).dev.id).toBe(instance.id);
     expect(f.endpoints(main)).toEqual(pinned);
     expect(f.endpoints(feature)).toEqual(automatic);
-    await restored.stop(main);
-    await f.runtime.selectEndpointProfile(main, null);
+    await restored.stop(updated);
+    await f.runtime.selectEndpointProfile(updated, null);
     expect(
       f.state.worktreeEndpointProfile(main.repoPath, main.worktree.path)
     ).toBeNull();
-    expect(f.endpoints(main).every((app) => app.requestedPort === null)).toBe(
-      true
-    );
+    const persisted = readFileSync(f.state.path, "utf-8");
+    expect(persisted).not.toContain('"endpointProfile"');
+    expect(persisted).not.toContain('"requestedPort"');
   } finally {
     await f.close();
   }
@@ -236,6 +242,47 @@ test("manual command bindings prevent reassignment until released; missing profi
     expect(
       f.state.worktreeEndpointProfile(main.repoPath, main.worktree.path)
     ).toBeNull();
+  } finally {
+    await f.close();
+  }
+});
+
+test("manual contexts lease referenced endpoints without blocking unrelated groups", async () => {
+  const f = await fixture();
+  try {
+    const [main] = f.targets;
+    const config = BranchBaseConfigSchema.parse({
+      ...main.config,
+      appGroups: {
+        ...main.config.appGroups,
+        dependency: {
+          apps: { db: { protocol: "tcp" } },
+          outputs: { port: "{apps.db.port}" },
+          start: { argv: ["true"] },
+          stop: "process",
+        },
+        dev: {
+          ...main.config.appGroups.dev,
+          env: { DB_PORT: "{appGroups.dependency.outputs.port}" },
+        },
+        unrelated: {
+          apps: { cache: { protocol: "tcp" } },
+          start: { argv: ["true"] },
+          stop: "process",
+        },
+      },
+    });
+    const target = { ...main, config };
+    const { dependency, dev, unrelated } = f.runtime.reconcile(target);
+    const context = await f.runtime.manualCommandContext(target);
+    try {
+      expect(f.runtime.resourceStore.lease(context.leaseId).toSorted()).toEqual(
+        [dependency.id, dev.id].toSorted()
+      );
+      expect(f.runtime.resourceStore.hasLease(unrelated.id)).toBe(false);
+    } finally {
+      await f.runtime.releaseManualCommandContext(context.leaseId);
+    }
   } finally {
     await f.close();
   }

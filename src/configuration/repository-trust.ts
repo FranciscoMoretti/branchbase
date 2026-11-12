@@ -23,8 +23,9 @@ const fingerprintCommand = (command: BranchBaseCommand) => ({
   ...(command.cwd ? { cwd: command.cwd } : {}),
 });
 
-export const repositoryCommandFingerprint = (
-  config: BranchBaseConfig
+const configurationFingerprint = (
+  config: BranchBaseConfig,
+  includeEndpointProfiles: boolean
 ): string => {
   const commands = {
     appGroups: Object.fromEntries(
@@ -49,7 +50,7 @@ export const repositoryCommandFingerprint = (
       ])
     ),
     setup: fingerprintCommand(config.setup),
-    ...(config.endpointProfiles
+    ...(includeEndpointProfiles && config.endpointProfiles
       ? { endpointProfiles: config.endpointProfiles }
       : {}),
     ...(config.profiles ? { profiles: config.profiles } : {}),
@@ -58,6 +59,15 @@ export const repositoryCommandFingerprint = (
     .update(JSON.stringify(commands))
     .digest("base64url");
 };
+
+/** Endpoint choices affect trust, but do not change the app-group topology. */
+export const appGroupConfigurationFingerprint = (
+  config: BranchBaseConfig
+): string => configurationFingerprint(config, false);
+
+export const repositoryCommandFingerprint = (
+  config: BranchBaseConfig
+): string => configurationFingerprint(config, true);
 
 export const repositoryFingerprintIsTrusted = (
   repoPath: string,

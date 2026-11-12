@@ -28,12 +28,7 @@ export const WorktreeEndpointProfile = ({
   }
   const selected = selection === undefined ? profile.id : selection;
   const choice = profile.choices.find((item) => item.id === selected);
-  const blocked =
-    worktree.setupState === "running" ||
-    worktree.appGroups.some(
-      (group) =>
-        group.pending || group.run || group.processRunning || group.cleanupOnly
-    );
+  const blocked = profile.changeBlocked;
   return (
     <section
       className="product-settings-panel my-4"
@@ -107,7 +102,7 @@ export const WorktreeEndpointProfile = ({
       )}
       <p className="product-muted">
         {blocked
-          ? "Stop this worktree’s apps and finish cleanup before applying endpoints."
+          ? "Wait for setup and lifecycle operations, and stop apps using these endpoints before applying."
           : "Applying reserves ports without starting apps. Occupied ports produce a conflict."}
       </p>
       {profile.error ? (

@@ -12,38 +12,40 @@ import type { AppGroupTarget } from "./lifecycle";
 import { reserveBackingPort } from "./readiness";
 import type { BackingPortLease } from "./readiness";
 
-/** Called under the runtime's lifecycle lock. Commit preferences and assignments together. */
-export const applyEndpointProfile = async (input: {
+interface EndpointProfileContext {
   target: AppGroupTarget;
-  profileId: string | null;
-  instances: Record<string, AppGroupInstance>;
   state: FileBranchBaseStateStore;
   processes: ProcessSupervisor;
-  routing: LocalRoutingEngine;
   resources: ResourceStore;
-}): Promise<void> => {
-  const { target, profileId, state, processes, routing, resources, instances } =
-    input;
-  const pins = endpointProfilePorts(target.config, profileId);
-  const groups = Object.entries(target.config.appGroups).filter(([, group]) =>
+}
+
+const eligibleGroups = (target: AppGroupTarget) =>
+  Object.entries(target.config.appGroups).filter(([, group]) =>
     supportsEndpointProfile(group)
   );
-  const groupIds = new Set(groups.map(([id]) => id));
-  const affected = state
-    .allInstances(target.repoPath)
-    .filter(
-      (instance) =>
-        instance.mode === "per-worktree" &&
-        instance.worktreePath === target.worktree.path &&
-        groupIds.has(instance.groupId)
-    );
-  const ids = new Set(affected.map((instance) => instance.id));
+
+const inspectProfileAssignments = ({
+  target,
+  state,
+  processes,
+  resources,
+}: EndpointProfileContext) => {
+  const groupIds = new Set(eligibleGroups(target).map(([id]) => id));
   const all = state.allResourceInstances();
-  if (
+  const affected = all.flatMap(({ repoPath, instance }) =>
+    repoPath === target.repoPath &&
+    instance.mode === "per-worktree" &&
+    instance.worktreePath === target.worktree.path &&
+    groupIds.has(instance.groupId)
+      ? [instance]
+      : []
+  );
+  const ids = new Set(affected.map((instance) => instance.id));
+  const blocked =
     all.some(
       ({ instance }) =>
         instance.run &&
-        (instance.run.worktreePath === target.worktree.path ||
+        (ids.has(instance.id) ||
           Object.values(instance.run.instanceIdsByGroup).some((id) =>
             ids.has(id)
           ))
@@ -55,8 +57,25 @@ export const applyEndpointProfile = async (input: {
           appGroupInstanceProcessId(instance.id),
           target.worktree.path
         ) !== null
-    )
-  ) {
+    );
+  return { affected, all, blocked, ids };
+};
+
+export const endpointProfileChangeBlocked = (input: EndpointProfileContext) =>
+  inspectProfileAssignments(input).blocked;
+
+/** Called under the runtime's lifecycle lock. Commit preferences and assignments together. */
+export const applyEndpointProfile = async (
+  input: EndpointProfileContext & {
+    profileId: string | null;
+    instances: Record<string, AppGroupInstance>;
+    routing: LocalRoutingEngine;
+  }
+): Promise<void> => {
+  const { target, profileId, state, routing, instances } = input;
+  const pins = endpointProfilePorts(target.config, profileId);
+  const { affected, all, blocked, ids } = inspectProfileAssignments(input);
+  if (blocked) {
     throw new Error(
       "Stop the affected apps and release their command contexts before changing endpoint profiles."
     );
@@ -94,45 +113,48 @@ export const applyEndpointProfile = async (input: {
       appId: endpoint.appId,
       instanceId: instance.id,
       port: null,
-      requestedPort: null,
+      requestedPort: undefined,
     }))
   );
-  const plans: typeof updates = groups.flatMap(([groupId, group]) =>
-    Object.entries(group.apps).map(([appId, app]) => {
-      const instance = state.instanceById(
-        target.repoPath,
-        instances[groupId].id
-      );
-      if (!instance) {
-        throw new Error(`Missing instance ${groupId}`);
-      }
-      const endpoint = Object.values(instance.endpoints).find(
-        (item) => item.appId === appId
-      );
-      if (!endpoint) {
-        throw new Error(`Missing endpoint ${groupId}.${appId}`);
-      }
-      const requestedPort = pins[groupId]?.[appId] ?? app.port ?? null;
-      return {
-        appId,
-        instanceId: instance.id,
-        port:
-          requestedPort ??
-          (endpoint.requestedPort === null ? endpoint.port : null),
-        requestedPort,
-      };
-    })
-  );
+  const plans: ((typeof updates)[number] & { fixedPort?: number })[] =
+    eligibleGroups(target).flatMap(([groupId, group]) =>
+      Object.entries(group.apps).map(([appId, app]) => {
+        const instance = state.instanceById(
+          target.repoPath,
+          instances[groupId].id
+        );
+        if (!instance) {
+          throw new Error(`Missing instance ${groupId}`);
+        }
+        const endpoint = Object.values(instance.endpoints).find(
+          (item) => item.appId === appId
+        );
+        if (!endpoint) {
+          throw new Error(`Missing endpoint ${groupId}.${appId}`);
+        }
+        const requestedPort = pins[groupId]?.[appId];
+        const fixedPort = requestedPort ?? app.port;
+        return {
+          appId,
+          fixedPort,
+          instanceId: instance.id,
+          port:
+            fixedPort ??
+            (endpoint.requestedPort === undefined ? endpoint.port : null),
+          requestedPort,
+        };
+      })
+    );
   const exactPorts = new Set(
     plans.flatMap((plan) =>
-      plan.requestedPort === null ? [] : [plan.requestedPort]
+      plan.fixedPort === undefined ? [] : [plan.fixedPort]
     )
   );
   for (const plan of plans) {
     // An explicit profile change can move this worktree's automatic assignment
     // when another of its apps needs that port. Other worktrees remain excluded.
     if (
-      plan.requestedPort === null &&
+      plan.fixedPort === undefined &&
       plan.port !== null &&
       exactPorts.has(plan.port)
     ) {
