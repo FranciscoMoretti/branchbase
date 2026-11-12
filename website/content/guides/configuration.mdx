@@ -87,4 +87,4 @@ Only per-worktree application groups support these profiles. Shared instances, i
 
 Direct URLs use `127.0.0.1`; `localhost` is a different browser origin. Endpoint profiles do not configure authentication callbacks.
 
-Before downgrading to a BranchBase version without endpoint profiles, stop the app groups, apply **Project default** to each worktree with a selected profile, then remove `endpointProfiles` from the configuration. Older versions cannot read saved profiles, port pins, or the command approval captured by an active run using this configuration.
+Older versions cannot read saved profiles, port pins, or the command approval captured by an active run using this configuration. To clear those fields before downgrading, stop the app groups and apply **Project default** to each worktree with a selected profile. Remove `endpointProfiles` from the configuration before starting the older version. If you already downgraded and see a local-state error, reinstall the newer version to complete these steps.

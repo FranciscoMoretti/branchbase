@@ -28,6 +28,13 @@ export const WorktreeEndpointProfile = ({
   }
   const selected = selection === undefined ? profile.id : selection;
   const choice = profile.choices.find((item) => item.id === selected);
+  const pins = Object.entries(choice?.ports ?? {}).flatMap(([groupId, apps]) =>
+    Object.entries(apps).map(([appId, port]) => (
+      <li key={JSON.stringify([groupId, appId])}>
+        {groupId} / {appId}: port {port} (required)
+      </li>
+    ))
+  );
   const blocked = profile.changeBlocked;
   return (
     <section
@@ -85,22 +92,11 @@ export const WorktreeEndpointProfile = ({
           {change.isPending ? "Applying…" : "Apply endpoints"}
         </Button>
       </div>
-      {choice ? (
-        <ul className="product-muted">
-          {Object.entries(choice.ports).flatMap(([groupId, apps]) =>
-            Object.entries(apps).map(([appId, port]) => (
-              <li key={`${groupId}:${appId}`}>
-                {groupId} / {appId}: port {port} (required)
-              </li>
-            ))
-          )}
-        </ul>
-      ) : (
-        <p className="product-muted">
-          Use the shared configuration’s ports. Apps without a fixed port
-          receive a stable automatic assignment.
-        </p>
-      )}
+      {pins.length > 0 ? <ul className="product-muted">{pins}</ul> : null}
+      <p className="product-muted">
+        {pins.length > 0 ? "Apps not listed use" : "Apps use"} their configured
+        ports or stable automatic assignments.
+      </p>
       <p className="product-muted">
         {blocked
           ? "Wait for setup and lifecycle operations, and stop apps using these endpoints before applying."

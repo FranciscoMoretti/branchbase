@@ -152,7 +152,7 @@ const fixture = async () => {
 
 test("selecting endpoint profiles leaves a running managed resource alone", async () => {
   const f = await fixture();
-  const reservation = await reserveBackingPort();
+  const reservation = await reserveBackingPort(new Set(f.ports));
   const { port } = reservation;
   await reservation.release();
   try {

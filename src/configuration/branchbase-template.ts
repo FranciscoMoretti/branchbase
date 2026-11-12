@@ -217,7 +217,6 @@ export const referencedTemplateGroups = (
         ) {
           continue;
         }
-        groups.add(groupId);
         if (!visitedOutputs.has(token)) {
           visitedOutputs.add(token);
           visit(output, groupId);

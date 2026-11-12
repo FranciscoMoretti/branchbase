@@ -263,10 +263,14 @@ test("manual contexts lease referenced endpoints without blocking unrelated grou
         },
         dev: {
           ...main.config.appGroups.dev,
-          env: { DB_PORT: "{appGroups.dependency.outputs.port}" },
+          env: {
+            CACHE_NAME: "{appGroups.unrelated.outputs.name}",
+            DB_PORT: "{appGroups.dependency.outputs.port}",
+          },
         },
         unrelated: {
           apps: { cache: { protocol: "tcp" } },
+          outputs: { name: "development-cache" },
           start: { argv: ["true"] },
           stop: "process",
         },

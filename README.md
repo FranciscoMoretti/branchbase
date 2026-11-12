@@ -258,12 +258,12 @@ Keep one shared configuration while giving a chosen worktree exact local ports. 
 "endpointProfiles": {
   "localhost": {
     "name": "Localhost",
-    "ports": { "development": { "web": 3000, "api": 8000 } }
+    "ports": { "Product Apps": { "Web": 3000, "API": 8000 } }
   }
 }
 ```
 
-In the worktree view, select **Endpoint profile → Localhost → Apply endpoints**. Other worktrees keep their selections and assignments. Worktrees on Project default use literal configured ports, or stable automatic assignments when no literal port is declared. Existing environment and argv bindings such as `{apps.web.port}` receive the assigned value.
+In the worktree view, select **Endpoint profile → Localhost → Apply endpoints**. Other worktrees keep their selections and assignments. Worktrees on Project default use literal configured ports, or stable automatic assignments when no literal port is declared. Existing environment and argv bindings such as `{apps.Web.port}` receive the assigned value.
 
 The same operation is available without the dashboard:
 
