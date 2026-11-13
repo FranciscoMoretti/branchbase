@@ -2,7 +2,7 @@ import { defineConfig } from "blume";
 
 export default defineConfig({
   agents: { llmsTxt: true },
-  banner: "BranchBase 0.5.1",
+  banner: "BranchBase 0.5.2",
   content: { root: "content" },
   description:
     "Run the apps your coding agents build side by side on your Mac. Manage their worktrees, services, and resource usage from one place.",
